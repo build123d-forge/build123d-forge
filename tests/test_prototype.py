@@ -4,17 +4,28 @@ Covers ModelPrototype, Param, ViewSpec, ValidationReport, B-Rep verification,
 immutability, bounds, cross-field invariants, and introspection utilities.
 """
 
+import ast
+import enum
+import tomllib
 import unittest
 from typing import Literal, Self
 
 from build123d import Axis, Box, Compound, Face, Part, Wire
-from pydantic import ValidationError, model_validator
+from pydantic import BaseModel, ValidationError, model_validator
 
+from build123d_forge.mcp_shim import (
+    generate_part_info,
+    generate_part_info_ast,
+    generate_part_info_code,
+    mcp_shim,
+)
 from build123d_forge.prototype import (
     ModelPrototype,
     Param,
     ValidationReport,
     ViewSpec,
+    _format_toml_value,
+    _to_safe_literal,
 )
 
 
@@ -421,6 +432,228 @@ class TestIntrospection(unittest.TestCase):
         self.assertEqual(params["length"]["gt"], 0.0)
         self.assertIn("material", params)
         self.assertEqual(params["material"]["choices"], ["PLA", "PETG", "ABS"])
+
+    def test_to_toml_template_parses_cleanly_with_tomllib(self):
+        """to_toml_template output is directly parseable by tomllib.loads."""
+        template = DummyBox.to_toml_template()
+        parsed = tomllib.loads(template)
+        self.assertEqual(parsed["length"], 20.0)
+        self.assertEqual(parsed["width"], 10.0)
+        self.assertEqual(parsed["height"], 5.0)
+        self.assertEqual(parsed["material"], "PLA")
+
+    def test_to_toml_template_required_fields_commented_out(self):
+        """Required parameters without default values are commented out as <required>."""
+        class RequiredModel(ModelPrototype):
+            req_dim: float = Param(..., gt=0.0, unit="mm", description="Length")
+            def build(self): pass
+
+        template = RequiredModel.to_toml_template()
+        self.assertIn("# req_dim = <required>", template)
+        self.assertNotIn("PydanticUndefined", template)
+        self.assertNotIn("...", template)
+        parsed = tomllib.loads(template)
+        self.assertNotIn("req_dim", parsed)
+
+    def test_to_toml_template_optional_none_commented_out(self):
+        """Optional parameters with None defaults are commented out as <optional>."""
+        class OptionalModel(ModelPrototype):
+            opt_note: str | None = Param(None, description="Optional note")
+            def build(self): pass
+
+        template = OptionalModel.to_toml_template()
+        self.assertIn("# opt_note = <optional>", template)
+        self.assertNotIn("= None", template)
+        parsed = tomllib.loads(template)
+        self.assertNotIn("opt_note", parsed)
+
+    def test_to_toml_template_multiline_docstrings_prefixed(self):
+        """Every line of multi-line class docstring and descriptions is prefixed with '#'."""
+        class MultiDocModel(ModelPrototype):
+            """Primary summary line.
+
+            Detailed specification paragraph spanning multiple lines.
+            """
+            dim: float = Param(10.0, description="First line of desc.\nSecond line of desc.")
+            def build(self): pass
+
+        template = MultiDocModel.to_toml_template()
+        parsed = tomllib.loads(template)
+        self.assertEqual(parsed["dim"], 10.0)
+
+    def test_to_toml_template_boolean_and_collection_literals(self):
+        """Booleans and lists/tuples format into valid lowercase TOML array syntax."""
+        class CollectionModel(ModelPrototype):
+            flag_t: bool = Param(True)
+            flag_f: bool = Param(False)
+            coords: list[float] = Param([1.0, 2.5])
+            bool_list: list[bool] = Param([True, False])
+            tags: list[str] = Param(default_factory=lambda: ["a", "b"])
+            def build(self): pass
+
+        template = CollectionModel.to_toml_template()
+        parsed = tomllib.loads(template)
+        self.assertIs(parsed["flag_t"], True)
+        self.assertIs(parsed["flag_f"], False)
+        self.assertEqual(parsed["coords"], [1.0, 2.5])
+        self.assertEqual(parsed["bool_list"], [True, False])
+        self.assertEqual(parsed["tags"], ["a", "b"])
+
+    def test_part_info_dict_required_fields_have_none_default(self):
+        """part_info_dict sets default to None for required fields to support ast.literal_eval."""
+        class RequiredModel(ModelPrototype):
+            req_dim: float = Param(..., gt=0.0)
+            def build(self): pass
+
+        info = RequiredModel.part_info_dict()
+        self.assertIn("req_dim", info["parameters"])
+        self.assertIsNone(info["parameters"]["req_dim"]["default"])
+
+
+# Test Enum types for Enum unboxing tests
+class StrEnumCustom(str, enum.Enum):
+    PLA = "PLA"
+    PETG = "PETG"
+
+
+class IntEnumCustom(int, enum.Enum):
+    LOW = 1
+    HIGH = 5
+
+
+class FloatEnumCustom(float, enum.Enum):
+    COARSE = 0.3
+    FINE = 0.1
+
+
+class PureStrEnum(enum.Enum):
+    ROUGH = "rough"
+    SMOOTH = "smooth"
+
+
+class PureIntEnum(enum.Enum):
+    FIRST = 10
+    SECOND = 20
+
+
+class StdStrEnum(enum.StrEnum):
+    FAST = "fast"
+
+
+class StdIntEnum(enum.IntEnum):
+    COARSE = 100
+
+
+class SubEnumModel(BaseModel):
+    mat: StrEnumCustom = StrEnumCustom.PETG
+    preset: PureIntEnum = PureIntEnum.FIRST
+
+
+class TestSafeLiteralEnumUnboxing(unittest.TestCase):
+    """Direct unit tests for _to_safe_literal with Enum values."""
+
+    def test_str_enum_subclass(self):
+        res = _to_safe_literal(StrEnumCustom.PLA)
+        self.assertEqual(res, "PLA")
+        self.assertIs(type(res), str)
+
+    def test_int_enum_subclass(self):
+        res = _to_safe_literal(IntEnumCustom.LOW)
+        self.assertEqual(res, 1)
+        self.assertIs(type(res), int)
+
+    def test_float_enum_subclass(self):
+        res = _to_safe_literal(FloatEnumCustom.COARSE)
+        self.assertEqual(res, 0.3)
+        self.assertIs(type(res), float)
+
+    def test_pure_str_enum(self):
+        res = _to_safe_literal(PureStrEnum.ROUGH)
+        self.assertEqual(res, "rough")
+        self.assertIs(type(res), str)
+
+    def test_pure_int_enum(self):
+        res = _to_safe_literal(PureIntEnum.FIRST)
+        self.assertEqual(res, 10)
+        self.assertIs(type(res), int)
+
+    def test_stdlib_strenum(self):
+        res = _to_safe_literal(StdStrEnum.FAST)
+        self.assertEqual(res, "fast")
+        self.assertIs(type(res), str)
+
+    def test_stdlib_intenum(self):
+        res = _to_safe_literal(StdIntEnum.COARSE)
+        self.assertEqual(res, 100)
+        self.assertIs(type(res), int)
+
+    def test_enums_in_collections(self):
+        self.assertEqual(_to_safe_literal([StrEnumCustom.PLA, StrEnumCustom.PETG]), ["PLA", "PETG"])
+        self.assertEqual(_to_safe_literal((IntEnumCustom.LOW, IntEnumCustom.HIGH)), [1, 5])
+        self.assertEqual(_to_safe_literal({StrEnumCustom.PLA}), ["PLA"])
+        self.assertEqual(_to_safe_literal({"material": StrEnumCustom.PLA}), {"material": "PLA"})
+        self.assertEqual(_to_safe_literal({StrEnumCustom.PLA: 10}), {"PLA": 10})
+
+    def test_enums_in_submodel(self):
+        sub = SubEnumModel()
+        dumped = _to_safe_literal(sub)
+        self.assertEqual(dumped, {"mat": "PETG", "preset": 10})
+
+
+class TestMcpShimEnumAst(unittest.TestCase):
+    """Integration tests verifying AST generation and literal_eval for Enum-bearing prototypes."""
+
+    def test_generate_part_info_ast_with_enums(self):
+        class EnumProto(ModelPrototype):
+            mat: StrEnumCustom = Param(StrEnumCustom.PLA, description="Filament")
+            tier: IntEnumCustom = Param(IntEnumCustom.HIGH, description="Tier")
+            surface: PureStrEnum = Param(PureStrEnum.SMOOTH, description="Surface")
+            count: PureIntEnum = Param(PureIntEnum.SECOND, description="Count")
+            speed: StdStrEnum = Param(StdStrEnum.FAST, description="Speed")
+            coarse: StdIntEnum = Param(StdIntEnum.COARSE, description="Coarse")
+            materials: list[StrEnumCustom] = Param([StrEnumCustom.PLA, StrEnumCustom.PETG])
+            nested: SubEnumModel = Param(default_factory=SubEnumModel)
+
+            def build(self) -> Part:
+                return Box(10, 10, 10)
+
+        code = generate_part_info_code(EnumProto)
+        self.assertTrue(code.startswith("PART_INFO = {"))
+        self.assertNotIn("<StrEnumCustom", code)
+        self.assertNotIn("<PureStrEnum", code)
+        self.assertNotIn("<StdStrEnum", code)
+
+        assign_node = generate_part_info_ast(EnumProto)
+        self.assertIsInstance(assign_node, ast.Assign)
+
+        evaluated = ast.literal_eval(assign_node.value)
+        params = evaluated["parameters"]
+
+        self.assertEqual(params["mat"]["default"], "PLA")
+        self.assertEqual(params["tier"]["default"], 5)
+        self.assertEqual(params["surface"]["default"], "smooth")
+        self.assertEqual(params["count"]["default"], 20)
+        self.assertEqual(params["speed"]["default"], "fast")
+        self.assertEqual(params["coarse"]["default"], 100)
+        self.assertEqual(params["materials"]["default"], ["PLA", "PETG"])
+        self.assertEqual(params["nested"]["default"], {"mat": "PETG", "preset": 10})
+
+    def test_mcp_shim_globals_injection_with_enums(self):
+        class EnumBox(ModelPrototype):
+            mat: StrEnumCustom = Param(StrEnumCustom.PLA)
+            count: IntEnumCustom = Param(IntEnumCustom.LOW)
+
+            def build(self) -> Part:
+                return Box(10, 10, 10)
+
+        mod_globals = {"__name__": "models.enum_box"}
+        mcp_shim(EnumBox, mod_globals, inject_defaults=True)
+
+        self.assertIn("PART_INFO", mod_globals)
+        self.assertEqual(mod_globals["PART_INFO"]["parameters"]["mat"]["default"], "PLA")
+        self.assertEqual(mod_globals["PART_INFO"]["parameters"]["count"]["default"], 1)
+        self.assertEqual(mod_globals["mat"], StrEnumCustom.PLA)
+        self.assertEqual(mod_globals["count"], IntEnumCustom.LOW)
 
 
 if __name__ == "__main__":

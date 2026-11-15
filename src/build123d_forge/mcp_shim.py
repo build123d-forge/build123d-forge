@@ -5,77 +5,18 @@ from __future__ import annotations
 import ast
 import inspect
 import pprint
-import typing
-from typing import Any, get_args, get_origin
+from typing import Any
 
 from build123d.topology import Compound, Part, Shape
-
-
-def _resolve_type_name(annotation: Any) -> str:
-    """Derive human-readable type string from a Python type annotation."""
-    origin = get_origin(annotation)
-    if origin is typing.Literal:
-        args = get_args(annotation)
-        if args:
-            return type(args[0]).__name__
-        return "str"
-    if origin is typing.Union:
-        args = [a for a in get_args(annotation) if a is not type(None)]
-        if len(args) == 1:
-            return _resolve_type_name(args[0])
-        return "Union[" + ", ".join(_resolve_type_name(a) for a in args) + "]"
-    if hasattr(annotation, "__name__"):
-        return annotation.__name__
-    return str(annotation)
+from pydantic import ValidationError
+from build123d_forge.prototype import _build_part_info, _resolve_type_name, _to_safe_literal
 
 
 def generate_part_info(cls: type[Any]) -> dict[str, Any]:
     """Derive build123d-mcp compatible PART_INFO dictionary from model prototype fields."""
     if hasattr(cls, "part_info_dict") and callable(getattr(cls, "part_info_dict")):
         return cls.part_info_dict()
-
-    parameters: dict[str, dict[str, Any]] = {}
-    model_fields = getattr(cls, "model_fields", {})
-
-    for name, field in model_fields.items():
-        type_str = _resolve_type_name(field.annotation)
-        extra = field.json_schema_extra or {}
-        if callable(extra):
-            extra = extra({})
-        unit = extra.get("unit") if isinstance(extra, dict) else None
-
-        desc = field.description or name
-        if unit and f"({unit})" not in desc and f"[{unit}]" not in desc:
-            desc = f"{desc} ({unit})".strip()
-
-        origin = get_origin(field.annotation)
-        choices = list(get_args(field.annotation)) if origin is typing.Literal else None
-
-        param_entry: dict[str, Any] = {
-            "type": type_str,
-            "default": field.default,
-            "description": desc,
-        }
-        if unit:
-            param_entry["unit"] = unit
-        if getattr(field, "gt", None) is not None:
-            param_entry["gt"] = field.gt
-        if getattr(field, "ge", None) is not None:
-            param_entry["ge"] = field.ge
-        if getattr(field, "lt", None) is not None:
-            param_entry["lt"] = field.lt
-        if getattr(field, "le", None) is not None:
-            param_entry["le"] = field.le
-        if choices:
-            param_entry["choices"] = choices
-
-        parameters[name] = param_entry
-
-    return {
-        "description": (cls.__doc__ or "").strip(),
-        "tags": getattr(cls, "__tags__", ["build123d", "forge"]),
-        "parameters": parameters,
-    }
+    return _build_part_info(cls)
 
 
 def generate_part_info_code(cls: type[Any], indent: int = 4) -> str:
@@ -115,6 +56,14 @@ def mcp_shim(
     if not isinstance(module_globals, dict):
         raise TypeError(f"module_globals must be a dict, got {type(module_globals).__name__}")
 
+    # Rebuild Pydantic core schema using caller module namespace to resolve ForwardRefs
+    # (e.g. when 'from __future__ import annotations' is used and class is defined in an exec session)
+    if hasattr(cls, "model_rebuild") and callable(getattr(cls, "model_rebuild")):
+        try:
+            cls.model_rebuild(_types_namespace=module_globals)
+        except Exception:
+            pass
+
     part_info = generate_part_info(cls)
     module_globals["PART_INFO"] = part_info
 
@@ -134,9 +83,7 @@ def mcp_shim(
     def make_print_oriented(**kwargs: Any) -> Shape:
         """Instantiate prototype, build Part, and return print-oriented geometry."""
         instance = cls.model_validate(kwargs)
-        shape = instance.build()
-        if isinstance(shape, dict):
-            shape = Compound(children=list(shape.values()))
+        raw_shape = instance.build()
 
         orient_fn = getattr(instance, "orient_for_print", None)
         if orient_fn is not None and callable(orient_fn):
@@ -147,13 +94,15 @@ def mcp_shim(
                 if p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
                 and p.name not in ("self", "cls")
             ]
-            oriented = orient_fn(shape) if len(params) >= 1 else orient_fn()
+            oriented = orient_fn(raw_shape) if len(params) >= 1 else orient_fn()
             if oriented is not None:
                 if isinstance(oriented, dict):
                     return Compound(children=list(oriented.values()))
                 return oriented
 
-        return shape
+        if isinstance(raw_shape, dict):
+            return Compound(children=list(raw_shape.values()))
+        return raw_shape
 
     make.__doc__ = cls.__doc__ or f"Generate {cls.__name__} CAD geometry."
     make.__name__ = "make"
@@ -165,6 +114,9 @@ def mcp_shim(
     module_globals["make"] = make
     module_globals["make_print_oriented"] = make_print_oriented
 
-    # Hook for execute_file inside build123d-mcp
-    if module_globals.get("__name__") == "builtins":
-        module_globals["result"] = make()
+    # Hook for execute_file inside build123d-mcp or interactive execution
+    if module_globals.get("__name__") in ("builtins", None, "build123d_mcp") or "show" in module_globals:
+        try:
+            module_globals["result"] = make()
+        except ValidationError:
+            pass
