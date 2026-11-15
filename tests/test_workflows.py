@@ -284,7 +284,7 @@ on:
 
 jobs:
   models:
-    uses: build123d-forge/.github/workflows/build-and-release.yml@main
+    uses: build123d-forge/build123d-forge/.github/workflows/build-and-release.yml@main
     permissions:
       contents: write
 """
@@ -560,7 +560,7 @@ class TestConsumerCallerWorkflow(unittest.TestCase):
         self.assertIn("push", data.get("on", {}))
         self.assertIn("pull_request", data.get("on", {}))
         job = data.get("jobs", {}).get("models", {})
-        self.assertIn("build123d-forge/.github/workflows/build-and-release.yml", job.get("uses", ""))
+        self.assertIn("build123d-forge/build123d-forge/.github/workflows/build-and-release.yml", job.get("uses", ""))
         self.assertEqual(job.get("permissions", {}).get("contents"), "write")
 
 

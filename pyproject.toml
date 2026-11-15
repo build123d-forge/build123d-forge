@@ -21,6 +21,11 @@ dependencies = [
     "pillow>=10.0.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/build123d-forge/build123d-forge"
+Repository = "https://github.com/build123d-forge/build123d-forge.git"
+Issues = "https://github.com/build123d-forge/build123d-forge/issues"
+
 [project.optional-dependencies]
 render = [
     "resvg-py>=0.5.0",

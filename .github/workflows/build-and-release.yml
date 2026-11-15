@@ -90,8 +90,13 @@ jobs:
       - name: Set up Python ${{ inputs.python-version || '3.12' }}
         run: uv python install "${{ inputs.python-version || '3.12' }}"
 
-      - name: Install locked dependencies
-        run: uv sync --frozen
+      - name: Install project dependencies
+        run: |
+          if [ -f uv.lock ]; then
+            uv sync --frozen
+          else
+            uv sync
+          fi
 
       - name: Build & validate all model configurations
         env:
