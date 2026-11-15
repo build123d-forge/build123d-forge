@@ -4,6 +4,7 @@ Validates each core feature in complete isolation against specifications in PROJ
 """
 
 import ast
+import hashlib
 import json
 import os
 import sys

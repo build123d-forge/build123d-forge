@@ -59,7 +59,7 @@ class TestPackageImports(unittest.TestCase):
         """Package resolves to the expected src/ tree in build123d-forge."""
         import build123d_forge
         file_path = Path(build123d_forge.__file__).resolve()
-        expected_path = Path("/home/tfoote/ws/onshape_mcp_test/build123d-forge/src/build123d_forge/__init__.py").resolve()
+        expected_path = (Path(__file__).resolve().parent.parent / "src" / "build123d_forge" / "__init__.py").resolve()
         self.assertEqual(file_path, expected_path)
 
 
