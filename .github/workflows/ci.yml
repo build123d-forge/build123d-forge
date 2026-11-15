@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    name: test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    env:
+      VTK_DEFAULT_OPENGL_WINDOW: vtkOSOpenGLRenderWindow
+      PYTHONUNBUFFERED: "1"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install headless OpenGL & OSMesa graphics libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgl1 libegl1 libosmesa6 libgomp1
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "pyproject.toml"
+
+      - name: Set up Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: Install build123d-forge and dependencies
+        run: uv pip install -e ".[render]"
+
+      - name: Verify CLI entry points and help commands
+        run: |
+          uv run bforge --version
+          uv run bforge --help
+          uv run build123d-forge --help
+
+      - name: Run unit test suite
+        run: uv run python -m unittest discover -s tests -v
+
+      - name: Verify B-Rep geometry and configuration validation gates
+        run: |
+          mkdir -p .ci_smoke/models .ci_smoke/configs
+          cat << 'EOF' > .ci_smoke/models/ci_cube.py
+          from build123d_forge import ModelPrototype, Param
+          from build123d import Box, Part
+
+          class CICube(ModelPrototype):
+              size: float = Param(10.0, gt=0.0, unit="mm", description="Side length")
+              def build(self) -> Part:
+                  return Box(self.size, self.size, self.size)
+          EOF
+          cat << 'EOF' > .ci_smoke/configs/ci_cube.toml
+          size = 10.0
+          EOF
+          uv run bforge check
+          uv run bforge build -o .ci_smoke/dist
+          test -f .ci_smoke/dist/ci_cube/ci_cube.step
+          test -f .ci_smoke/dist/ci_cube/ci_cube.stl
+          test -f .ci_smoke/dist/ci_cube/manifest.json
+          rm -rf .ci_smoke

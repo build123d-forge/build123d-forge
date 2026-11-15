@@ -1,0 +1,136 @@
+name: Reusable build123d Build & Release
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        description: "Python version to use"
+        type: string
+        default: "3.12"
+        required: false
+      models-dir:
+        description: "Directory containing model sources (defaults to auto-discovery: models/, parts/, or pyproject.toml)"
+        type: string
+        default: ""
+        required: false
+      configs-dir:
+        description: "Directory containing configuration presets (defaults to auto-discovery: configs/, pyproject.toml, or root)"
+        type: string
+        default: ""
+        required: false
+      dist-dir:
+        description: "Directory for built CAD artifacts and manifests"
+        type: string
+        default: "dist"
+        required: false
+      output-assets-dir:
+        description: "Directory for release package bundles and checksums"
+        type: string
+        default: "release_assets"
+        required: false
+    secrets:
+      token:
+        description: "GitHub token for release creation (defaults to GITHUB_TOKEN)"
+        required: false
+  workflow_dispatch:
+    inputs:
+      python-version:
+        description: "Python version to use"
+        type: string
+        default: "3.12"
+        required: false
+      models-dir:
+        description: "Directory containing model sources (defaults to auto-discovery: models/, parts/, or pyproject.toml)"
+        type: string
+        default: ""
+        required: false
+      configs-dir:
+        description: "Directory containing configuration presets (defaults to auto-discovery: configs/, pyproject.toml, or root)"
+        type: string
+        default: ""
+        required: false
+      dist-dir:
+        description: "Output directory for built CAD artifacts"
+        type: string
+        default: "dist"
+        required: false
+      output-assets-dir:
+        description: "Output directory for release package bundles and checksums"
+        type: string
+        default: "release_assets"
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build & Release Models
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install headless OpenGL / OSMesa for deterministic VTK rendering
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgl1 libegl1 libosmesa6 libgomp1
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: Set up Python ${{ inputs.python-version || '3.12' }}
+        run: uv python install "${{ inputs.python-version || '3.12' }}"
+
+      - name: Install locked dependencies
+        run: uv sync --frozen
+
+      - name: Build & validate all model configurations
+        env:
+          VTK_DEFAULT_OPENGL_WINDOW: vtkOSOpenGLRenderWindow
+        run: |
+          export SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)
+          BUILD_FLAGS=()
+          if [ -n "${{ inputs.models-dir }}" ]; then
+            BUILD_FLAGS+=(--models-dir "${{ inputs.models-dir }}")
+          fi
+          if [ -n "${{ inputs.configs-dir }}" ]; then
+            BUILD_FLAGS+=(--configs-dir "${{ inputs.configs-dir }}")
+          fi
+          uv run bforge check "${BUILD_FLAGS[@]}"
+          uv run bforge build "${BUILD_FLAGS[@]}" --output-dir "${{ inputs.dist-dir || 'dist' }}"
+
+      - name: Upload build preview artifact (all pushes & PRs)
+        uses: actions/upload-artifact@v4
+        with:
+          name: model-artifacts
+          path: ${{ inputs.dist-dir || 'dist' }}
+
+      - name: Package release assets on v* tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          uv run bforge release-package \
+            --tag "${GITHUB_REF_NAME}" \
+            --dist "${{ inputs.dist-dir || 'dist' }}" \
+            --out "${{ inputs.output-assets-dir || 'release_assets' }}"
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          token: ${{ secrets.token || secrets.GITHUB_TOKEN || github.token }}
+          body_path: ${{ inputs.output-assets-dir || 'release_assets' }}/RELEASE_NOTES.md
+          files: |
+            ${{ inputs.output-assets-dir || 'release_assets' }}/*.zip
+            ${{ inputs.output-assets-dir || 'release_assets' }}/*.stl
+            ${{ inputs.output-assets-dir || 'release_assets' }}/*.step
+            ${{ inputs.output-assets-dir || 'release_assets' }}/*.png
+            ${{ inputs.output-assets-dir || 'release_assets' }}/SHA256SUMS.txt
