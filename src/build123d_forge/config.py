@@ -434,10 +434,6 @@ def load_config_file(
         raise ConfigError(msg, path=file_path, cause=exc, validation_error=exc) from exc
 
 
-# Alias load_config to load_config_file for contract compliance
-load_config = load_config_file
-
-
 def discover_config_files(configs_dir: Path | str = "configs") -> list[Path]:
     """Discover all .toml configuration preset files within a directory, sorted by name."""
     cfg_path = Path(configs_dir)

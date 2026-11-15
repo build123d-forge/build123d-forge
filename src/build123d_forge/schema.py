@@ -134,7 +134,3 @@ def export_json_schema(
     content = serialize_json_schema(schema, indent=indent)
     path.write_text(content, encoding="utf-8")
     return path
-
-
-# Backward-compatible alias
-export_schema = export_json_schema

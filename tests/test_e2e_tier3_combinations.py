@@ -40,11 +40,11 @@ except ImportError:
     class ValidationReport: pass  # type: ignore
 
 try:
-    from build123d_forge.schema import export_schema
+    from build123d_forge.schema import export_json_schema
     HAS_SCHEMA = True
 except ImportError:
     HAS_SCHEMA = False
-    def export_schema(*args: Any, **kwargs: Any) -> Any: pass  # type: ignore
+    def export_json_schema(*args: Any, **kwargs: Any) -> Any: pass  # type: ignore
 
 try:
     from build123d_forge.mcp_shim import mcp_shim

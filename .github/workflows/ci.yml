@@ -46,7 +46,7 @@ jobs:
         run: uv python install ${{ matrix.python-version }}
 
       - name: Install build123d-forge and dependencies
-        run: uv pip install -e ".[render]"
+        run: uv pip install -e ".[render,dev]"
 
       - name: Verify CLI entry points and help commands
         run: |
@@ -54,8 +54,8 @@ jobs:
           uv run bforge --help
           uv run build123d-forge --help
 
-      - name: Run unit test suite
-        run: uv run python -m unittest discover -s tests -v
+      - name: Run pytest test suite
+        run: uv run pytest -v
 
       - name: Verify B-Rep geometry and configuration validation gates
         run: |

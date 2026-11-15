@@ -42,11 +42,11 @@ except ImportError:
     class ValidationReport: pass  # type: ignore
 
 try:
-    from build123d_forge.schema import export_schema
+    from build123d_forge.schema import export_json_schema
     HAS_SCHEMA = True
 except ImportError:
     HAS_SCHEMA = False
-    def export_schema(*args: Any, **kwargs: Any) -> Any: pass  # type: ignore
+    def export_json_schema(*args: Any, **kwargs: Any) -> Any: pass  # type: ignore
 
 try:
     from build123d_forge.mcp_shim import mcp_shim
@@ -626,7 +626,7 @@ class TestTier1CacheEngine(unittest.TestCase):
             project_root=self.dir_path,
         )
         self.assertEqual(manifest.schema_version, 1)
-        self.assertEqual(manifest.config_name, "default")
+        self.assertEqual(manifest.variant_name, "default")
         self.assertIn("length", manifest.resolved_params)
         self.assertEqual(manifest.resolved_params["length"], 20.0)
 

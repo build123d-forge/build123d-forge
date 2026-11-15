@@ -22,7 +22,6 @@ from pydantic import BaseModel
 
 from build123d_forge.cache import (
     BuildManifest,
-    Manifest,
     canonical_param_json,
     canonicalize_params,
     clear_cache,
@@ -293,16 +292,14 @@ class TestManifestModelAndSchema(unittest.TestCase):
         self.temp_dir.cleanup()
 
     def test_manifest_schema_fields(self) -> None:
-        """BuildManifest satisfies schema requirements with aliases and defaults."""
+        """BuildManifest satisfies schema requirements and defaults."""
         m = BuildManifest(
             schema_version=1,
             model_name="BoxModel",
             variant_name="default",
-            config_name="default",
             ast_hash="aaa",
             param_hash="bbb",
             input_sha256="ccc",
-            parameters={"length": 20.0},
             resolved_params={"length": 20.0},
             dependencies={"python": "3.12"},
             artifacts={"box.step": "hash123"},
@@ -310,10 +307,8 @@ class TestManifestModelAndSchema(unittest.TestCase):
         self.assertEqual(m.schema_version, 1)
         self.assertEqual(m.model_name, "BoxModel")
         self.assertEqual(m.variant_name, "default")
-        self.assertEqual(m.config_name, "default")
         self.assertEqual(m.resolved_params["length"], 20.0)
         self.assertEqual(m.artifacts["box.step"], "hash123")
-        self.assertIs(Manifest, BuildManifest)
 
     def test_compute_manifest_with_artifacts(self) -> None:
         """compute_manifest populates input closure, parameter hashes, and artifact digests."""
@@ -334,7 +329,6 @@ class TestManifestModelAndSchema(unittest.TestCase):
 
         self.assertEqual(manifest.schema_version, 1)
         self.assertEqual(manifest.variant_name, "preset_a")
-        self.assertEqual(manifest.config_name, "preset_a")
         self.assertEqual(manifest.resolved_params["length"], 25.0)
         self.assertIn("model.step", manifest.artifacts)
         expected_art_hash = hashlib.sha256(b"STEP FILE DATA").hexdigest()
@@ -537,6 +531,68 @@ class TestCacheValidationAndPerformance(unittest.TestCase):
         self.assertEqual(h1, h2)
         self.assertTrue(is_cache_valid(man_path, manifest))
 
+
+class TestAstInvalidationAndConcurrency(unittest.TestCase):
+    """Edge cases for dynamic dependency creation, package fallback overrides, and multi-threaded caching."""
+
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.dir = Path(self.temp_dir.name).resolve()
+        clear_cache()
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    def test_late_subpackage_module_overrides_init_fallback(self) -> None:
+        """Creating pkg/submod.py invalidates a previously cached fallback to pkg/__init__.py."""
+        pkg = self.dir / "pkg"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text("DEFAULT_VAL = 1\n", encoding="utf-8")
+        main = self.dir / "main.py"
+        main.write_text("from pkg import submod\n", encoding="utf-8")
+
+        # Initially resolves fallback to pkg/__init__.py because pkg/submod.py does not exist
+        h_before = compute_ast_closure_hash(main, project_root=self.dir)
+
+        # Now create pkg/submod.py without touching main.py or calling clear_cache()
+        (pkg / "submod.py").write_text("SUBMOD_VAL = 999\n", encoding="utf-8")
+        h_after = compute_ast_closure_hash(main, project_root=self.dir)
+        self.assertNotEqual(h_before, h_after)
+
+        clear_cache()
+        self.assertEqual(h_after, compute_ast_closure_hash(main, project_root=self.dir))
+
+    def test_rapid_dependency_deletion_and_recreation_cycle(self) -> None:
+        """Deleting and recreating a transitive dependency without editing root invalidates AST closure."""
+        dep = self.dir / "helper.py"
+        main = self.dir / "root.py"
+        main.write_text("import helper\n", encoding="utf-8")
+
+        dep.write_text("X = 10\n", encoding="utf-8")
+        h_v1 = compute_ast_closure_hash(main, project_root=self.dir)
+
+        dep.unlink()
+        h_missing = compute_ast_closure_hash(main, project_root=self.dir)
+        self.assertNotEqual(h_v1, h_missing)
+
+        dep.write_text("X = 20\n", encoding="utf-8")
+        h_v2 = compute_ast_closure_hash(main, project_root=self.dir)
+        self.assertNotEqual(h_missing, h_v2)
+        self.assertNotEqual(h_v1, h_v2)
+
+    def test_multithreaded_closure_hash_consistency(self) -> None:
+        """Concurrent threads computing AST closure hashes observe deterministic, race-free results."""
+        from concurrent.futures import ThreadPoolExecutor
+
+        (self.dir / "shared.py").write_text("FACTOR = 3.5\n", encoding="utf-8")
+        main = self.dir / "entry.py"
+        main.write_text("import shared\nclass Entry:\n    k = shared.FACTOR\n", encoding="utf-8")
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            results = list(pool.map(lambda _: compute_ast_closure_hash(main, project_root=self.dir), range(32)))
+
+        self.assertEqual(len(set(results)), 1)
+        self.assertEqual(len(results[0]), 64)
 
 
 if __name__ == "__main__":

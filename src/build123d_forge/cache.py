@@ -76,15 +76,11 @@ class BuildManifest(BaseModel):
     model_name: str = ""
     prototype: str = ""
     variant_name: str = ""
-    config_name: str = ""
-    config: str = ""
     ast_hash: str = ""
     param_hash: str = ""
     input_sha256: str = ""
-    parameters: dict[str, Any] = Field(default_factory=dict)
     resolved_params: dict[str, Any] = Field(default_factory=dict)
     dependencies: dict[str, str] = Field(default_factory=dict)
-    environment: dict[str, str] = Field(default_factory=dict)
     artifacts: dict[str, Any] = Field(default_factory=dict)
     metrics: dict[str, Any] = Field(default_factory=dict)
     created_at: int = Field(default_factory=lambda: int(time.time()))
@@ -102,9 +98,6 @@ class BuildManifest(BaseModel):
         target = Path(path).resolve()
         data = json.loads(target.read_text(encoding="utf-8"))
         return cls.model_validate(data)
-
-
-Manifest = BuildManifest
 
 
 def find_project_root(start_path: Path) -> Path:
@@ -564,15 +557,11 @@ def compute_manifest(
         model_name=model_name,
         prototype=prototype,
         variant_name=variant_name,
-        config_name=variant_name,
-        config=variant_name,
         ast_hash=ast_hash,
         param_hash=param_hash,
         input_sha256=input_sha256,
-        parameters=raw_params,
         resolved_params=raw_params,
         dependencies=dependencies,
-        environment=dependencies,
         artifacts=artifacts_dict,
         metrics=metrics_dict,
         created_at=int(time.time()),
@@ -620,8 +609,8 @@ def is_cache_valid(
         if current_manifest.param_hash and data.get("param_hash") != current_manifest.param_hash:
             return False
 
-        curr_p = current_manifest.resolved_params or current_manifest.parameters
-        disk_p = data.get("resolved_params") or data.get("parameters")
+        curr_p = current_manifest.resolved_params
+        disk_p = data.get("resolved_params")
         if curr_p and disk_p:
             if canonicalize_params(curr_p) != canonicalize_params(disk_p):
                 return False
@@ -660,7 +649,6 @@ def is_cache_valid(
 
 __all__ = [
     "BuildManifest",
-    "Manifest",
     "clear_cache",
     "get_file_sha256",
     "find_project_root",

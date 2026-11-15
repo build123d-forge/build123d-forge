@@ -25,8 +25,6 @@ from build123d_forge.cli import cli
 # ---------------------------------------------------------------------------
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-if not (REPO_ROOT / ".github" / "workflows").is_dir():
-    REPO_ROOT = Path("/home/tfoote/ws/onshape_mcp_test/build123d-forge")
 WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
 CI_WORKFLOW_PATH = WORKFLOWS_DIR / "ci.yml"
 RELEASE_WORKFLOW_PATH = WORKFLOWS_DIR / "build-and-release.yml"
@@ -412,18 +410,18 @@ class TestCIWorkflow(unittest.TestCase):
         found_install = False
         for step in steps:
             run_cmd = step.get("run", "")
-            if ".[render]" in run_cmd:
+            if "pip install -e" in run_cmd and "render" in run_cmd:
                 found_install = True
-        self.assertTrue(found_install, "Step installing '.[render]' not found")
+        self.assertTrue(found_install, "Step installing editable package with 'render' extra not found")
 
-    def test_ci_unittest_discovery_command(self):
+    def test_ci_pytest_command(self):
         steps = self.data["jobs"]["test"]["steps"]
         found_test = False
         for step in steps:
             run_cmd = step.get("run", "")
-            if "unittest discover" in run_cmd:
+            if "pytest" in run_cmd:
                 found_test = True
-        self.assertTrue(found_test, "Unittest discovery execution step not found")
+        self.assertTrue(found_test, "Pytest execution step not found")
 
     def test_ci_cli_entrypoints_check(self):
         steps = self.data["jobs"]["test"]["steps"]

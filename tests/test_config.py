@@ -19,7 +19,6 @@ from build123d_forge.config import (
     create_config_template,
     discover_config_files,
     get_typo_suggestion,
-    load_config,
     load_config_file,
     read_config_file,
     scaffold_config,
@@ -64,7 +63,6 @@ class TestConfigModuleExports(unittest.TestCase):
 
     def test_exports_callable(self):
         self.assertTrue(callable(load_config_file))
-        self.assertTrue(callable(load_config))
         self.assertTrue(callable(read_config_file))
         self.assertTrue(callable(discover_config_files))
         self.assertTrue(callable(scaffold_config))
@@ -147,10 +145,10 @@ class TestConfigBasicLoading(unittest.TestCase):
             load_config_file(f, ConfigTestBox)
         self.assertIn("parse", str(ctx.exception).lower())
 
-    def test_accepts_str_path_and_alias(self):
+    def test_accepts_str_path(self):
         f = self.root / "string_path.toml"
         f.write_text("length = 42.0\n", encoding="utf-8")
-        inst = load_config(str(f), ConfigTestBox)
+        inst = load_config_file(str(f), ConfigTestBox)
         self.assertEqual(inst.length, 42.0)
 
 

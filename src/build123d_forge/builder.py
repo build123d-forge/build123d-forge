@@ -671,9 +671,6 @@ def build_project(
     return sorted(results, key=lambda r: r.variant)
 
 
-build_all_variants = build_project
-
-
 # ==============================================================================
 # B-Rep Verification & Check Engine
 # ==============================================================================
@@ -754,9 +751,6 @@ def check_project(
     return sorted(results, key=lambda r: r.variant)
 
 
-check_all = check_project
-
-
 # ==============================================================================
 # Variant Listing & Clean Subroutines
 # ==============================================================================
@@ -817,9 +811,6 @@ def list_project(
         )
 
     return statuses
-
-
-list_variants = list_project
 
 
 def clean_dist(dist_dir: Path | str = "dist", project_root: Path | None = None) -> bool:

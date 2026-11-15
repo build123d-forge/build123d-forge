@@ -1,67 +1,91 @@
-"""Unit tests verifying package imports, versioning, and export contracts."""
+"""Tests verifying package imports, versioning, and public export contracts."""
 
+from pathlib import Path
 import re
 import sys
-import unittest
-from pathlib import Path
+
+import build123d_forge
 
 
-class TestPackageImports(unittest.TestCase):
-    """Test suite verifying package structure, installation, and public exports."""
-
-    def test_package_import(self):
-        """Package imports cleanly without errors."""
-        import build123d_forge
-        self.assertIsNotNone(build123d_forge)
-
-    def test_version_string(self):
-        """Package version follows Semantic Versioning."""
-        import build123d_forge
-        version = getattr(build123d_forge, "__version__", None)
-        self.assertIsNotNone(version)
-        self.assertTrue(re.match(r"^\d+\.\d+\.\d+", version), f"Invalid version string: {version}")
-
-    def test_all_exports_present(self):
-        """All documented public symbols are exported in __all__."""
-        import build123d_forge
-        expected_exports = [
-            "ModelPrototype",
-            "Param",
-            "ValidationReport",
-            "ViewSpec",
-            "mcp_shim",
-            "generate_part_info",
-            "generate_part_info_ast",
-            "generate_part_info_code",
-            "generate_json_schema",
-            "serialize_json_schema",
-            "export_json_schema",
-            "export_schema",
-        ]
-        for symbol in expected_exports:
-            self.assertIn(symbol, build123d_forge.__all__, f"{symbol} missing from __all__")
-            self.assertTrue(hasattr(build123d_forge, symbol), f"{symbol} missing on module")
-
-    def test_submodules_importable(self):
-        """Individual submodules are importable."""
-        import build123d_forge
-        import build123d_forge.mcp_shim
-        import build123d_forge.prototype as prototype_mod
-        import build123d_forge.schema as schema_mod
-
-        self.assertTrue(hasattr(prototype_mod, "ModelPrototype"))
-        self.assertTrue(hasattr(schema_mod, "generate_json_schema"))
-        mcp_shim_module = sys.modules["build123d_forge.mcp_shim"]
-        self.assertTrue(hasattr(mcp_shim_module, "mcp_shim"))
-        self.assertTrue(callable(build123d_forge.mcp_shim))
-
-    def test_pth_source_resolution(self):
-        """Package resolves to the expected src/ tree in build123d-forge."""
-        import build123d_forge
-        file_path = Path(build123d_forge.__file__).resolve()
-        expected_path = (Path(__file__).resolve().parent.parent / "src" / "build123d_forge" / "__init__.py").resolve()
-        self.assertEqual(file_path, expected_path)
+def test_package_import() -> None:
+    """Package imports cleanly without errors."""
+    assert build123d_forge is not None
 
 
-if __name__ == "__main__":
-    unittest.main()
+def test_version_string() -> None:
+    """Package version follows Semantic Versioning."""
+    version = getattr(build123d_forge, "__version__", None)
+    assert version is not None
+    assert re.match(r"^\d+\.\d+\.\d+", version), f"Invalid version string: {version}"
+
+
+def test_all_exports_present() -> None:
+    """All documented public symbols are exported in __all__ without duplicate aliases."""
+    expected_exports = [
+        "ModelPrototype",
+        "Param",
+        "ValidationReport",
+        "ViewSpec",
+        "mcp_shim",
+        "generate_part_info",
+        "generate_part_info_ast",
+        "generate_part_info_code",
+        "generate_json_schema",
+        "serialize_json_schema",
+        "export_json_schema",
+        "ConfigError",
+        "load_config_file",
+        "read_config_file",
+        "discover_config_files",
+        "scaffold_config",
+        "create_config_template",
+        "BuildManifest",
+        "clear_cache",
+        "compute_ast_closure_hash",
+        "compute_manifest",
+        "compute_param_hash",
+        "is_cache_valid",
+        "build_project",
+        "build_variant",
+        "check_project",
+        "list_project",
+        "clean_dist",
+        "package_release",
+        "generate_release_notes",
+        "watch_and_rebuild",
+    ]
+    for symbol in expected_exports:
+        assert symbol in build123d_forge.__all__, f"{symbol} missing from __all__"
+        assert hasattr(build123d_forge, symbol), f"{symbol} missing on module"
+
+    removed_aliases = [
+        "Manifest",
+        "export_schema",
+        "load_config",
+        "watch_loop",
+        "build_all_variants",
+        "check_all",
+        "list_variants",
+    ]
+    for alias in removed_aliases:
+        assert alias not in build123d_forge.__all__
+
+
+def test_submodules_importable() -> None:
+    """Individual submodules are importable."""
+    import build123d_forge.mcp_shim
+    import build123d_forge.prototype as prototype_mod
+    import build123d_forge.schema as schema_mod
+
+    assert hasattr(prototype_mod, "ModelPrototype")
+    assert hasattr(schema_mod, "generate_json_schema")
+    mcp_shim_module = sys.modules["build123d_forge.mcp_shim"]
+    assert hasattr(mcp_shim_module, "mcp_shim")
+    assert callable(build123d_forge.mcp_shim)
+
+
+def test_editable_source_resolution() -> None:
+    """Editable package resolves to src/build123d_forge/__init__.py."""
+    file_path = Path(build123d_forge.__file__).resolve()
+    expected_path = (Path(__file__).resolve().parent.parent / "src" / "build123d_forge" / "__init__.py").resolve()
+    assert file_path == expected_path

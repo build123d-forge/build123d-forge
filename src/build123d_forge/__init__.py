@@ -8,10 +8,8 @@ from build123d_forge.builder import (
     DiscoveredModel,
     VariantSpec,
     VariantStatus,
-    build_all_variants,
     build_project,
     build_variant,
-    check_all,
     check_project,
     clean_dist,
     discover_configs,
@@ -19,11 +17,9 @@ from build123d_forge.builder import (
     discover_variants,
     filter_variants,
     list_project,
-    list_variants,
 )
 from build123d_forge.cache import (
     BuildManifest,
-    Manifest,
     clear_cache,
     compute_ast_closure_hash,
     compute_manifest,
@@ -35,7 +31,6 @@ from build123d_forge.config import (
     ConfigError,
     create_config_template,
     discover_config_files,
-    load_config,
     load_config_file,
     read_config_file,
     scaffold_config,
@@ -73,13 +68,11 @@ from build123d_forge.render import (
 )
 from build123d_forge.schema import (
     export_json_schema,
-    export_schema,
     generate_json_schema,
     serialize_json_schema,
 )
 from build123d_forge.watcher import (
     watch_and_rebuild,
-    watch_loop,
 )
 
 __all__ = [
@@ -87,13 +80,10 @@ __all__ = [
     "cli",
     "main",
     "build_project",
-    "build_all_variants",
     "build_variant",
     "check_project",
-    "check_all",
     "clean_dist",
     "list_project",
-    "list_variants",
     "discover_models",
     "discover_configs",
     "discover_variants",
@@ -106,16 +96,13 @@ __all__ = [
     "package_release",
     "generate_release_notes",
     "watch_and_rebuild",
-    "watch_loop",
     "BuildManifest",
-    "Manifest",
     "clear_cache",
     "compute_ast_closure_hash",
     "compute_manifest",
     "compute_param_hash",
     "is_cache_valid",
     "ConfigError",
-    "load_config",
     "load_config_file",
     "read_config_file",
     "discover_config_files",
@@ -132,7 +119,6 @@ __all__ = [
     "generate_json_schema",
     "serialize_json_schema",
     "export_json_schema",
-    "export_schema",
     "render_view",
     "render_views",
     "render_preview_grid",

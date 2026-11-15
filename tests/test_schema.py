@@ -17,7 +17,6 @@ from build123d_forge.prototype import ModelPrototype, Param
 from build123d_forge.schema import (
     DRAFT_2020_12_DIALECT,
     export_json_schema,
-    export_schema,
     generate_json_schema,
     serialize_json_schema,
 )
@@ -199,10 +198,6 @@ class TestSchemaSerializationAndExport(unittest.TestCase):
             content = json.loads(out_file.read_text(encoding="utf-8"))
             self.assertEqual(content["$schema"], DRAFT_2020_12_DIALECT)
             self.assertIn("length", content["properties"])
-
-    def test_export_schema_alias(self):
-        """export_schema is an alias to export_json_schema."""
-        self.assertIs(export_schema, export_json_schema)
 
 
 if __name__ == "__main__":

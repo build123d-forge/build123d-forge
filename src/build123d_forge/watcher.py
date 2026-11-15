@@ -107,6 +107,3 @@ def watch_and_rebuild(
                 snapshot = current
     except KeyboardInterrupt:
         print("\nWatcher stopped.")
-
-
-watch_loop = watch_and_rebuild
