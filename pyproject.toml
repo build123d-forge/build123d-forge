@@ -1,0 +1,31 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "build123d_forge"
+version = "0.1.0"
+description = "Declarative configurations & reproducible CAD releases for build123d"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+    { name = "build123d-forge Contributors" }
+]
+dependencies = [
+    "build123d>=0.13.0",
+    "pydantic>=2.0.0",
+    "click>=8.0.0",
+    "jsonschema>=4.0.0",
+    "vtk>=9.0.0",
+    "pillow>=10.0.0",
+]
+
+[project.optional-dependencies]
+render = [
+    "resvg-py>=0.5.0",
+]
+
+[project.scripts]
+bforge = "build123d_forge.cli:main"
+build123d-forge = "build123d_forge.cli:main"
