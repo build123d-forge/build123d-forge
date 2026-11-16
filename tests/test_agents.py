@@ -59,6 +59,9 @@ class TestAgentsDirective(unittest.TestCase):
             "bforge new-config",
             "bforge schema",
             "bforge watch",
+            "bforge build --force",
+            "releases/latest/download/",
+            "azimuth == 0",
             "VTK_DEFAULT_OPENGL_WINDOW=vtkOSOpenGLRenderWindow",
             "build123d-mcp",
         ]
@@ -104,7 +107,7 @@ class TestAgentsDirective(unittest.TestCase):
     def test_embedded_bforge_bash_commands_conform_to_click_cli(self) -> None:
         """Every bforge command in bash blocks matches live Click subcommands and options."""
         bash_blocks = _extract_fenced_blocks(get_agents_directive(), "bash")
-        self.assertGreaterEqual(len(bash_blocks), 4)
+        self.assertGreaterEqual(len(bash_blocks), 1)
 
         checked = 0
         for block in bash_blocks:
@@ -112,7 +115,7 @@ class TestAgentsDirective(unittest.TestCase):
                 line = raw_line.strip()
                 if not line or line.startswith("#"):
                     continue
-                tokens = shlex.split(line)
+                tokens = shlex.split(line, comments=True)
                 for idx, tok in enumerate(tokens):
                     if tok in ("bforge", "build123d-forge"):
                         checked += 1

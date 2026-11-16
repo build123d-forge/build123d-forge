@@ -97,39 +97,22 @@ flowchart TD
     GHRelease --> Readme
 ```
 
-1. **Author purely in text**: Define parametric geometry as a `ModelPrototype` in `models/*.py` and capture each hardware variation (e.g., `default.toml`, `half_inch_glass.toml`) as a sparse `.toml` preset in `configs/`.
-2. **Validate & iterate locally**: Export Draft 2020-12 JSON Schemas (`bforge schema`) for live editor autocomplete, run `bforge check` to enforce parameter invariants and watertight B-Rep geometry, and run `bforge build` (or `bforge watch`) to compile deterministic CAD and shaded VTK previews into git-ignored `dist/<variant>/`.
-3. **Tag to publish**: Push a `v*` tag (`git tag v1.0.0 && git push origin v1.0.0`). The reusable GitHub Actions workflow builds every variant in headless Linux, uploads release archives and flattened `<variant>__<asset>` files with SHA-256 checksums, and automatically serves up-to-date images and slicer downloads in your repository's `README.md`.
-
 ---
 
 ## Installation & Consumer Project Structure
 
 ### Installing `build123d-forge`
 
-`build123d-forge` requires **Python `>= 3.11`** and installs both the `bforge` and `build123d-forge` CLI entry points.
-
-#### Using `uv` (Recommended)
+`build123d-forge` requires **Python `>= 3.11`** and installs both the `bforge` and `build123d-forge` CLI entry points. Optional extras include `[render]` (`resvg-py>=0.5.0` headless SVG fallback) and `[mcp]` (`build123d-mcp>=0.3.0` interactive MCP CAD server).
 
 ```bash
-# Install from PyPI (include [render] for optional resvg-py SVG fallback support)
+# Using uv (recommended) — from PyPI, into pyproject.toml, or from GitHub main
 uv pip install "build123d-forge[render]"
-
-# Or add directly to a consumer project's pyproject.toml & uv.lock
 uv add "build123d-forge[render]"
+uv pip install "build123d-forge[render,mcp] @ git+https://github.com/build123d-forge/build123d-forge.git"
 
-# Or install directly from GitHub main
-uv pip install "build123d-forge[render] @ git+https://github.com/build123d-forge/build123d-forge.git"
-```
-
-#### Using `pip`
-
-```bash
-# Install from PyPI
+# Or using pip
 pip install "build123d-forge[render]"
-
-# Or install directly from GitHub main
-pip install "build123d-forge[render] @ git+https://github.com/build123d-forge/build123d-forge.git"
 ```
 
 ### Consumer `pyproject.toml` Configuration
@@ -153,7 +136,7 @@ models = ["models"]
 configs = ["configs"]
 ```
 
-- **`models`**: Directories (or `.py` file paths) scanned recursively for concrete `ModelPrototype` subclasses. If omitted, `bforge` auto-discovers `models/`, `parts/`, or the project root (automatically excluding `tests/`, `test_*.py`, `*_test.py`, `.venv/`, and `dist/`).
+- **`models`**: Directories (or `.py` file paths) scanned recursively for concrete `ModelPrototype` subclasses (auto-discovering `models/`, `parts/`, or the project root when omitted, excluding `tests/`, `test_*.py`, `*_test.py`, `.venv/`, and `dist/`). Plain Python helper modules (such as mating COTS reference geometry) are tracked by the AST import cache without becoming standalone build targets unless they subclass `ModelPrototype`.
 - **`configs`**: Directories (or `.toml` file paths) scanned for configuration presets. If omitted, `bforge` auto-discovers `configs/` or the project root (excluding `pyproject.toml`). If a project has no `.toml` files yet, `bforge` synthesizes a `default` variant directly from the prototype's parameter defaults.
 
 ### Recommended Consumer Project Layout
@@ -348,6 +331,7 @@ mcp_shim(GlassMount, globals())
 - **`orient_for_print(self, part: Part | None = None) -> Part | dict[str, Part] | None`** *(optional)*: Transforms the built geometry into its optimal slicer orientation at `Z = 0` and triggers `<slug>_print.stl` generation. Returning `None` (the default) skips `*_print.stl` export.
 - **`views(self) -> list[ViewSpec]`** *(optional)*: Defines offscreen Phong-shaded VTK renders (`1000 × 750` px, stripped metadata chunks). Defaults to a 4-view suite (`iso`, `top`, `side`, and print-oriented `bed`). When 4 or more `ViewSpec` entries are returned, `bforge build` also composites the first 4 into a `2 × 2` `preview_grid.png`.
   - `ViewSpec` fields: `stem` (output `<stem>.png` filename), `description`, `direction` (`"front"`, `"iso"`, `"top"`, `"bottom"`, `"side"`/`"right"`, `"left"`, `"back"`/`"rear"`), `azimuth` (degrees), `elevation` (degrees), and `use_print_oriented` (`bool`, renders the `orient_for_print()` solid when `True`).
+  - Camera pose convention: `(azimuth=0, elevation=0)` looks from `-Y` toward `+Y` with `+Z` up (`+X` right). `direction` sets a preset angle **only** when `azimuth == 0` or `elevation == 0`; non-zero `azimuth`/`elevation` values are **absolute** spherical angles in degrees (pass explicit angles such as `azimuth=35, elevation=25` with `"iso"`, or `azimuth=145, elevation=25` for rear-isometric views).
 - **`verify(self, shape)` & `from_toml(path)`**: Built-in B-Rep verification gate (returning a `ValidationReport` with `is_valid`, `is_manifold`, `watertight`, `solids`, `faces`, `volume_mm3`, and `bounding_box_mm`) and programmatic TOML loader (`mount = GlassMount.from_toml("configs/default.toml")`).
 
 ---
@@ -496,20 +480,11 @@ Calling `mcp_shim(MyModel, globals())` (with optional `inject_defaults=True` if 
 
 ### 5. Delegating Builds & Previews in AI Agent Workflows (`AGENTS.md`)
 
-When collaborating with AI coding agents (Antigravity, Claude Code, Codex, Cursor, etc.) on parametric CAD repositories, agents will often invent bespoke `generate_*.py` scripts, ad-hoc STEP/STL exporters, or one-off `/tmp` preview renders—leaving you without automated builds and previews when you later tweak a Python dimension or `.toml` preset by hand.
+Without project guidance, AI coding agents often invent bespoke `generate_*.py` scripts, ad-hoc STEP/STL exporters, or throwaway `/tmp` renders—leaving you without automated builds and previews when you later tweak a `.py` or `.toml` file manually. Run [`bforge init-agents`](#bforge-init-agents) to commit the canonical [`AGENTS.md`](src/build123d_forge/templates/AGENTS.template.md) directive at your repository root:
 
-Scaffold the canonical [`AGENTS.md`](src/build123d_forge/templates/AGENTS.template.md) directive at your consumer repository root:
-
-```bash
-bforge init-agents
-# Created agent directive at /path/to/project/AGENTS.md
-```
-
-With `AGENTS.md` committed to your repository, future agents follow a clean division of labor:
-
-- **Agents focus strictly on declarative CAD & presets**: Editing `ModelPrototype` classes (`Param` definitions, `@model_validator` invariants, `build()`, `orient_for_print()`, and `ViewSpec` cameras) in `models/*.py` and sparse preset overrides in `configs/*.toml`—never writing custom export or rendering scripts and never committing binary `.step`, `.stl`, or `.png` artifacts.
-- **`build123d-forge` handles validation, builds & shaded previews**: Agents run `bforge check` and `bforge build` (or work alongside a live `bforge watch` session) and inspect the generated `dist/<variant>/preview_grid.png`, `<view_stem>.png` renders, and `manifest.json` metrics. If a new feature needs another camera angle, agents add a `ViewSpec` to `ModelPrototype.views()` so manual edits later automatically render that view too.
-- **`build123d-mcp` stays strictly optional for interactive diagnostics**: When available, agents can still use `mcp_shim` (`measure()`, `cross_sections()`, `compare()`, `analyze_printability()`) for deep geometric queries while keeping `bforge check` + `bforge build` as the authoritative build and preview pipeline.
+- **Agents edit only declarative CAD & presets**: Updating `ModelPrototype` classes (`Param`, `@model_validator`, `build()`, `orient_for_print()`, `ViewSpec`) in `models/*.py` and sparse overrides in `configs/*.toml`—never writing custom export/render scripts or committing `dist/` binaries.
+- **`bforge` owns validation, builds & permanent camera views**: Agents run `bforge check` + `bforge build` (or work alongside `bforge watch`), inspect `dist/<variant>/preview_grid.png` and `manifest.json`, and add missing camera angles to `ModelPrototype.views()` so manual tweaks later render those views automatically.
+- **`build123d-mcp` stays strictly diagnostic**: Agents may use `mcp_shim` (`measure()`, `cross_sections()`, `compare()`, `analyze_printability()`) for interactive CAD inspection while keeping `bforge check` + `bforge build` authoritative.
 
 ---
 
@@ -533,7 +508,7 @@ Both `bforge` and `build123d-forge` invoke the same CLI (`bforge --version`, `bf
 
 ### `bforge build`
 
-Incrementally build all or selected model configurations into `dist/<variant>/`. Unchanged variants whose transitive Python AST import closure, canonical parameters, dependency versions, and on-disk artifact SHA-256 digests match `dist/<variant>/manifest.json` short-circuit in `< 5 ms` (`[cached]`).
+Incrementally build all or selected model configurations into `dist/<variant>/`. Unchanged variants whose transitive Python AST import closure, canonical parameters, dependency versions, and on-disk artifact SHA-256 digests match `dist/<variant>/manifest.json` short-circuit in `< 5 ms` (`[cached]`). Pass `--force` if an external non-Python input (e.g., an imported `resources/*.step` file) changes without `.py`/`.toml` edits. Because `bforge build` still writes `.step`/`.stl` on broken solids to aid debugging, pair it with `bforge check` to enforce strict B-Rep gates.
 
 ```text
 bforge build [OPTIONS] [TARGETS]...
@@ -997,46 +972,20 @@ sequenceDiagram
 
 Key mechanisms inside `src/build123d_forge/cache.py`:
 
-- **Transitive Python AST Closure Walking (`compute_ast_closure_hash`)**:
-  Starting from the model's source file, `_ImportExtractor(ast.NodeVisitor)` extracts all `import` and `from ... import ...` targets and performs a cycle-safe breadth-first traversal across local workspace modules (`current_dir`, `project_root`, `project_root / "src"`, and relative package levels). Standard library modules (`sys.stdlib_module_names`, `sys.builtin_module_names`) and external environments (`.venv`, `venv`, `site-packages`, `.git`, `dist`, `__pycache__`) are excluded via `_is_local_file()`. Visited local files are sorted deterministically by workspace-relative path and hashed as `FILE:<rel_path>\nAST:<ast_dump>\n`.
-- **Comment, Blank-Line, and CRLF Invariance**:
-  Each file in the import closure is hashed via `ast.dump(tree, include_attributes=False)`, stripping line numbers, column offsets, `#` comments, blank lines, and `CRLF` vs. `LF` line-ending differences. Formatting cleanups or comment edits never invalidate built CAD artifacts, whereas any semantic AST change in the model—or in any transitively imported local helper module—immediately alters `ast_hash`.
-- **Sideband Missing-Candidate Tracking (`_IMPORT_PRIOR_CANDIDATES` & `_AST_MISSING_CANDIDATES`)**:
-  Thread-safe in-memory caches (`_AST_CLOSURE_CACHE` and `_IMPORT_RESOLVE_CACHE`, guarded by `_CACHE_LOCK`) memoize resolved paths and `(fpath, mtime_ns, size, content_sha)` file tuples. To prevent stale hits when Python's import resolution order changes on disk (for example, `from pkg import submod` initially falling back to `pkg/__init__.py`, followed by creating `pkg/submod.py` without editing the root model file), `_resolve_module_with_candidates()` records every higher-priority candidate path probed *before* the resolved target into `_IMPORT_PRIOR_CANDIDATES` and rolls them up into `_AST_MISSING_CANDIDATES`. On warm lookups, `compute_ast_closure_hash()` checks `any(mc.is_file() for mc in missing_cands)` alongside `(st_mtime_ns, st_size, sha256)`—instantly detecting newly added, deleted, or recreated helper modules.
-- **Canonical Float & JSON Parameter Hashing (`compute_param_hash`)**:
-  `canonicalize_params()` normalizes parameter trees recursively: dictionaries are sorted by string key, `-0.0` normalizes to `0.0`, `NaN`/`Inf` serialize safely, and floats are rounded to 12 decimal places (`round(obj, 12)`) to eliminate IEEE-754 representation jitter. `canonical_param_json()` serializes the result with `json.dumps(..., sort_keys=True, separators=(",", ":"))` before SHA-256 hashing.
-- **`BuildManifest` (`dist/<variant>/manifest.json`) & ~1.5 ms Warm Cache Hits**:
-  `compute_manifest()` combines `ast_hash`, `param_hash`, and sorted core package versions (`python`, `build123d`, `pydantic`, `vtk`, `cadquery_ocp`) into `input_sha256`. `is_cache_valid()` compares `schema_version`, `input_sha256`, `ast_hash`, `param_hash`, and canonical `resolved_params`, then verifies every output file in `artifacts` exists and matches its recorded SHA-256 digest (`get_file_sha256()`, memoized by `(mtime_ns, size)` in `_ARTIFACT_HASH_CACHE`). Warm cache checks complete in ~1.5 ms (well below the 50 ms design budget).
+- **Transitive AST Closure & Formatting Invariance (`compute_ast_closure_hash`)**: `_ImportExtractor(ast.NodeVisitor)` performs a cycle-safe BFS across local workspace modules (`current_dir`, `project_root`, `project_root / "src"`, and relative imports), excluding stdlib and `.venv`/`site-packages`/`.git`/`dist`/`__pycache__` via `_is_local_file()`. Visited files are sorted by relative path and hashed as `FILE:<rel_path>\nAST:<ast_dump>\n` using `ast.dump(tree, include_attributes=False)`—ignoring `#` comments, blank lines, and `CRLF`/`LF` line endings while catching any semantic change across transitively imported helpers. *(Non-Python binary inputs in `resources/` are outside the AST closure; rebuild with `bforge build --force` when replaced.)*
+- **Sideband Missing-Candidate Tracking (`_IMPORT_PRIOR_CANDIDATES` & `_AST_MISSING_CANDIDATES`)**: Thread-safe caches (`_AST_CLOSURE_CACHE`, `_IMPORT_RESOLVE_CACHE` under `_CACHE_LOCK`) record every higher-priority path probed *before* a resolved module (e.g., `from pkg import submod` falling back to `pkg/__init__.py` before `pkg/submod.py` exists). Warm lookups check `any(mc.is_file() for mc in missing_cands)` alongside `(st_mtime_ns, st_size, sha256)` to detect newly created, deleted, or shadowed modules immediately.
+- **Canonical Parameter Hashing & ~1.5 ms Warm Hits (`compute_param_hash`, `BuildManifest`)**: `canonicalize_params()` sorts dict keys, normalizes `-0.0` to `0.0`, handles `NaN`/`Inf`, and rounds floats via `round(obj, 12)` before compact `json.dumps` + SHA-256 hashing. `compute_manifest()` combines `ast_hash`, `param_hash`, and core package versions (`python`, `build123d`, `pydantic`, `vtk`, `cadquery_ocp`) into `input_sha256`; `is_cache_valid()` verifies manifest digests and memoized artifact SHA-256s (`_ARTIFACT_HASH_CACHE`) in ~1.5 ms.
 
 ### Bit-for-Bit Deterministic CAD & Rendering
 
-`build123d-forge` eliminates non-deterministic timestamps, static counters, and ancillary metadata across every exported file format so identical inputs produce identical SHA-256 checksums across machines and CI runs:
-
-- **`ISO-10303-21` STEP Normalization (`exporters.py`)**:
-  `export_deterministic_step()` resolves the build timestamp from the explicit `epoch` flag, the `SOURCE_DATE_EPOCH` environment variable, or `0` (`1970-01-01T00:00:00` UTC via `format_step_timestamp()`). After invoking `build123d.export_step(..., timestamp=iso_timestamp)`, `normalize_step_file()` applies two regex passes:
-  1. `_STEP_FILE_NAME_PATTERN` normalizes the `FILE_NAME` header timestamp (handling multi-line records and escaped `''` quotes per ISO-10303-21).
-  2. `_STEP_ASSEMBLY_USAGE_PATTERN` renumbers `NEXT_ASSEMBLY_USAGE_OCCURRENCE` identifiers sequentially from `'1'` to `'N'`, neutralizing OpenCASCADE's process-global static occurrence counter on multi-part `Compound` assemblies.
-- **Canonical 80-Byte Binary STL Header & Locked Deflections (`exporters.py`)**:
-  `export_canonical_stl()` tessellates solids with locked tolerances (`linear_deflection=0.01` mm, `angular_deflection=0.05` rad) and overwrites OpenCASCADE's variable 80-byte binary header in-place with `make_canonical_stl_header(model_name, config_name)`—encoding `build123d-forge:<model>:<config>` in UTF-8 and null-padding (`\x00`) or truncating to exactly 80 bytes. When `ModelPrototype.orient_for_print()` returns an oriented `Part` or `dict[str, Part]`, `export_print_stl()` emits `<slug>_print.stl` (or `<slug>_<part>_print.stl`) with `:..._print` header tags.
-- **Headless Offscreen VTK & Fallback Rendering (`render.py`)**:
-  `render_view()` tessellates parts via `_tessellate_to_mesh()`, computes smooth Phong normals (`vtkPolyDataNormals` with `FeatureAngle=60.0`), applies `#ADD8E6` mesh shading over a `#FAFAFA` background, and renders offscreen via `vtkRenderWindow` (`SetOffScreenRendering(1)`, `SetMultiSamples(0)` to avoid hardware MSAA divergence). In headless Linux and CI environments, setting `VTK_DEFAULT_OPENGL_WINDOW=vtkOSOpenGLRenderWindow` binds VTK to software OSMesa / headless EGL (`libosmesa6`, `libegl1`, `libgl1`). If geometry is empty or VTK initialization fails, `render_view()` degrades gracefully to a deterministic Pillow solid-background PNG; `pyproject.toml` also provides the optional `[render]` extra (`resvg-py>=0.5.0`) for headless SVG rasterization workflows.
-- **Deterministic PNG Chunk Stripping (`strip_png_chunks`)**:
-  `strip_png_chunks()` walks the PNG binary stream from `\x89PNG\r\n\x1a\n` to `IEND` and strips non-critical ancillary metadata chunks (`tIME`, `tEXt`, `zTXt`, `iTXt`, `eXIf` in `DEFAULT_STRIP_CHUNKS`), including chunk-header resynchronization and `IEND` integrity validation.
-- **`2x2` `preview_grid.png` Composition (`render_preview_grid`)**:
-  `ModelPrototype.views()` defines a default 4-camera suite (`iso`, `top`, `side`, and print-oriented `bed` with `use_print_oriented=True`, each rendered at `1000x750`). `render_preview_grid()` composites the 4 views into a `2000x1500` `2x2` RGBA grid with 2 px `#DCDCDC` (`(220, 220, 220)`) cell dividers and strips all ancillary PNG chunks before writing `dist/<variant>/preview_grid.png`.
+- **`ISO-10303-21` STEP Normalization (`exporters.py`)**: `export_deterministic_step()` resolves the timestamp from `epoch`, `SOURCE_DATE_EPOCH`, or `0` (`format_step_timestamp()`), then `normalize_step_file()` normalizes multi-line/escaped `FILE_NAME` headers (`_STEP_FILE_NAME_PATTERN`) and renumbers `NEXT_ASSEMBLY_USAGE_OCCURRENCE` IDs `'1'..'N'` (`_STEP_ASSEMBLY_USAGE_PATTERN`) to neutralize OpenCASCADE's static assembly counter.
+- **Canonical Binary STL & Print Dispatch (`exporters.py`)**: `export_canonical_stl()` meshes with locked tolerances (`linear_deflection=0.01` mm, `angular_deflection=0.05` rad) and writes an 80-byte null-padded UTF-8 header (`build123d-forge:<model>:<config>` via `make_canonical_stl_header()`). `export_print_stl()` emits `<slug>_print.stl` (or `<slug>_<part>_print.stl`) whenever `orient_for_print()` returns geometry.
+- **Headless Offscreen VTK, Chunk Stripping & `2x2` Grids (`render.py`)**: `render_view()` tessellates solids (`_tessellate_to_mesh()`), computes `FeatureAngle=60.0` Phong normals (`#ADD8E6` mesh on `#FAFAFA` background), and renders offscreen with `SetMultiSamples(0)` (using `VTK_DEFAULT_OPENGL_WINDOW=vtkOSOpenGLRenderWindow` for software OSMesa/EGL, or falling back to a deterministic Pillow PNG; `[render]` adds `resvg-py>=0.5.0` for SVG workflows). `strip_png_chunks()` strips ancillary chunks (`tIME`, `tEXt`, `zTXt`, `iTXt`, `eXIf` in `DEFAULT_STRIP_CHUNKS`) with header resynchronization and `IEND` checks, and `render_preview_grid()` composites the first 4 `1000x750` views into a `2000x1500` `2x2` grid with 2 px `#DCDCDC` dividers.
 
 ### B-Rep Verification Gates & `build123d-mcp` Shim
 
-- **B-Rep Verification Gates (`ModelPrototype.verify` & `check_project`)**:
-  `ModelPrototype.verify()` inspects single `Part`/`Shape` solids or multi-part `dict[str, Part]` assemblies and returns an immutable `ValidationReport`:
-  1. **Topological Validity (`is_valid`)**: Queries OpenCASCADE `BRepCheck_Analyzer` (`shape.is_valid`) on every part.
-  2. **Closed-Shell Watertightness (`is_manifold`, `watertight`)**: Rejects open faces/shells (`len(solids) == 0`) and non-manifold edges/vertices (`is_manifold=False`).
-  3. **Positive Volume (`volume_mm3 > 0.0`)**: Verifies every solid in `shape.solids()` has strictly positive volume (`solid.volume > 0.0`) and computes the rounded 3D bounding box (`bounding_box_mm`).
-  `bforge check` (`check_project()`) runs a two-stage gate—first validating `.toml` inheritance, `Param` bounds, `@model_validator` cross-field invariants, and unknown-key typo suggestions (`config_valid`), and second executing `build()` + `verify()` (`geometry_valid`)—exiting non-zero (`1`) if any check fails.
-- **`build123d-mcp` Compatibility Shim (`mcp_shim.py`)**:
-  Calling `mcp_shim(MyPrototype, globals(), inject_defaults=False)` at the bottom of a model module exposes declarative prototypes to `build123d-mcp` servers and procedural tooling:
-  - **Static AST `PART_INFO` Compatibility**: `generate_part_info()`, `generate_part_info_code()`, and `generate_part_info_ast()` convert `model_fields` (types, PEP 604 unions, `Literal` choices, `Param` bounds, and physical `unit` strings) via `_to_safe_literal()` into a pure-literal `PART_INFO` dictionary guaranteed to evaluate cleanly under `ast.literal_eval()`.
-  - **Dynamic Namespace `model_rebuild` & Entrypoints**: `mcp_shim()` invokes `cls.model_rebuild(_types_namespace=module_globals)` so `from __future__ import annotations` forward references resolve accurately inside `exec()` / MCP sessions. It injects `PART_INFO`, `make(**kwargs)`, and signature-aware `make_print_oriented(**kwargs)` (wrapping multi-part `dict[str, Part]` outputs into a `Compound`), and automatically binds `module_globals["result"] = make()` when executed inside `build123d-mcp` (`__name__ in ("builtins", None, "build123d_mcp")` or `"show" in module_globals`).
+- **B-Rep Gates (`ModelPrototype.verify` & `check_project`)**: `verify()` checks single solids or `dict[str, Part]` assemblies via OpenCASCADE `BRepCheck_Analyzer` (`is_valid`), closed-shell manifoldness (`is_manifold`, `watertight`, `len(solids) > 0`), and strictly positive solid volume (`volume_mm3 > 0.0`), returning an immutable `ValidationReport` with `bounding_box_mm`. `bforge check` enforces both config validation (`config_valid`) and B-Rep verification (`geometry_valid`), exiting `1` on any failure.
+- **`build123d-mcp` Shim (`mcp_shim.py`)**: `generate_part_info()`, `generate_part_info_code()`, and `generate_part_info_ast()` serialize `model_fields` via `_to_safe_literal()` into an `ast.literal_eval()`-safe `PART_INFO` dict. `mcp_shim()` runs `cls.model_rebuild(_types_namespace=module_globals)` for `from __future__ import annotations` compatibility, injects `PART_INFO`, `make(**kwargs)`, and `make_print_oriented(**kwargs)`, and binds `result = make()` inside `build123d-mcp` sessions.
 
 ---
 
@@ -1054,13 +1003,13 @@ sudo apt-get install -y --no-install-recommends libgl1 libegl1 libosmesa6 libgom
 
 ### Cloning & Editable Installation
 
-`build123d-forge` uses a standards-based PEP 517 / PEP 660 `src/` layout built with `hatchling`. Use [`uv`](https://docs.astral.sh/uv/) to create an isolated virtual environment and install the package in editable mode with `[render,dev]` extras:
+`build123d-forge` uses a standards-based PEP 517 / PEP 660 `src/` layout built with `hatchling`. Use [`uv`](https://docs.astral.sh/uv/) to create an isolated virtual environment and install the package in editable mode with `[render,dev]` (and optional `[mcp]`) extras:
 
 ```bash
 git clone https://github.com/build123d-forge/build123d-forge.git
 cd build123d-forge
 
-# Create virtual environment and install editable package + optional render & dev extras
+# Create virtual environment and install editable package + render/dev extras
 uv venv --python 3.12
 source .venv/bin/activate
 uv pip install -e ".[render,dev]"
