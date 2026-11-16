@@ -22,6 +22,7 @@
     - [2. Exporting Draft 2020-12 JSON Schemas & IDE Autocomplete](#2-exporting-draft-2020-12-json-schemas--ide-autocomplete)
     - [3. Sparse `.toml` Configurations, Inheritance & Typo Diagnostics](#3-sparse-toml-configurations-inheritance--typo-diagnostics)
     - [4. Interactive Authoring in `build123d-mcp` with `mcp_shim`](#4-interactive-authoring-in-build123d-mcp-with-mcp_shim)
+    - [5. Delegating Builds & Previews in AI Agent Workflows (`AGENTS.md`)](#5-delegating-builds--previews-in-ai-agent-workflows-agentsmd)
   - [`bforge` CLI Reference](#bforge-cli-reference)
   - [Automated GitHub Releases & Embedding Release Previews](#automated-github-releases--embedding-release-previews)
 - **Developer & Architecture Guide**
@@ -159,6 +160,7 @@ configs = ["configs"]
 
 ```text
 alpstuga-shower-mount/
+├── AGENTS.md                       # Directs AI agents to delegate builds & previews to bforge
 ├── pyproject.toml                  # Dependencies & [tool.build123d_forge] layout
 ├── uv.lock                         # Locked dependencies for reproducible CI builds
 ├── README.md                       # Links /releases/latest/download/<variant>__*
@@ -492,6 +494,25 @@ Calling `mcp_shim(MyModel, globals())` (with optional `inject_defaults=True` if 
 
 ---
 
+### 5. Delegating Builds & Previews in AI Agent Workflows (`AGENTS.md`)
+
+When collaborating with AI coding agents (Antigravity, Claude Code, Codex, Cursor, etc.) on parametric CAD repositories, agents will often invent bespoke `generate_*.py` scripts, ad-hoc STEP/STL exporters, or one-off `/tmp` preview renders—leaving you without automated builds and previews when you later tweak a Python dimension or `.toml` preset by hand.
+
+Scaffold the canonical [`AGENTS.md`](src/build123d_forge/templates/AGENTS.template.md) directive at your consumer repository root:
+
+```bash
+bforge init-agents
+# Created agent directive at /path/to/project/AGENTS.md
+```
+
+With `AGENTS.md` committed to your repository, future agents follow a clean division of labor:
+
+- **Agents focus strictly on declarative CAD & presets**: Editing `ModelPrototype` classes (`Param` definitions, `@model_validator` invariants, `build()`, `orient_for_print()`, and `ViewSpec` cameras) in `models/*.py` and sparse preset overrides in `configs/*.toml`—never writing custom export or rendering scripts and never committing binary `.step`, `.stl`, or `.png` artifacts.
+- **`build123d-forge` handles validation, builds & shaded previews**: Agents run `bforge check` and `bforge build` (or work alongside a live `bforge watch` session) and inspect the generated `dist/<variant>/preview_grid.png`, `<view_stem>.png` renders, and `manifest.json` metrics. If a new feature needs another camera angle, agents add a `ViewSpec` to `ModelPrototype.views()` so manual edits later automatically render that view too.
+- **`build123d-mcp` stays strictly optional for interactive diagnostics**: When available, agents can still use `mcp_shim` (`measure()`, `cross_sections()`, `compare()`, `analyze_printability()`) for deep geometric queries while keeping `bforge check` + `bforge build` as the authoritative build and preview pipeline.
+
+---
+
 ## `bforge` CLI Reference
 
 Both `bforge` and `build123d-forge` invoke the same CLI (`bforge --version`, `bforge --help`). All commands auto-detect the project root from `pyproject.toml` or `.git`.
@@ -501,6 +522,7 @@ Both `bforge` and `build123d-forge` invoke the same CLI (`bforge --version`, `bf
 | [`bforge build`](#bforge-build) | Incrementally build `.step`, `.stl`, `*_print.stl`, `.png` views, schemas, and `manifest.json` into `dist/<variant>/` |
 | [`bforge check`](#bforge-check) | Validate `.toml` presets with Pydantic and run OpenCASCADE B-Rep manifold/watertightness gates |
 | [`bforge new-config`](#bforge-new-config) | Scaffold a documented sparse `.toml` preset pre-populated with `#:schema`, units, bounds, and defaults |
+| [`bforge init-agents`](#bforge-init-agents) | Scaffold a canonical `AGENTS.md` directive delegating CAD builds and preview renders to `bforge` |
 | [`bforge schema`](#bforge-schema) | Export Draft 2020-12 JSON Schema files (`dist/schemas/<Model>.schema.json`) for IDE TOML autocomplete |
 | [`bforge list`](#bforge-list) | Display discovered `ModelPrototype` classes, configuration presets, and cache status (`UP-TO-DATE` / `STALE` / `UNBUILT`) |
 | [`bforge watch`](#bforge-watch) | Watch `models/`, `parts/`, and `configs/` and incrementally rebuild changed presets on save |
@@ -590,6 +612,33 @@ bforge new-config quarter_inch_glass
 
 # Scaffold for a specific model class in a multi-model project
 bforge new-config metric_m4 --model SensorBracket
+```
+
+---
+
+### `bforge init-agents`
+
+Scaffold a canonical [`AGENTS.md`](src/build123d_forge/templates/AGENTS.template.md) directive in your consumer project root so AI coding agents focus solely on editing `models/*.py` and `configs/*.toml` while delegating builds, B-Rep gates, and preview generation to `bforge`.
+
+```text
+bforge init-agents [OPTIONS]
+```
+
+| Option | Default | Description |
+| :--- | :--- | :--- |
+| `-o, --out PATH` | `AGENTS.md` | Destination file path (or directory, writing `<out>/AGENTS.md`) |
+| `-f, --force` | `False` | Overwrite destination file if it already exists |
+| `--stdout` | `False` | Print the `AGENTS.md` directive directly to `stdout` instead of disk |
+
+```bash
+# Write AGENTS.md at the consumer repository root
+bforge init-agents
+
+# Overwrite an existing AGENTS.md with the latest build123d-forge template
+bforge init-agents --force
+
+# Print the directive to stdout (or write to GEMINI.md / CLAUDE.md via -o)
+bforge init-agents -o GEMINI.md
 ```
 
 ---
@@ -835,6 +884,7 @@ flowchart TD
     end
 
     subgraph Subsystems["Core Subsystems Layer"]
+        AGENTS["agents.py (Consumer AGENTS.md Template & Scaffolding)"]
         CONFIG["config.py (TOML Loader, extends & Typo Diagnostics)"]
         CACHE["cache.py (AST Closure Hash & BuildManifest Cache)"]
         EXPORTERS["exporters.py (Deterministic STEP & Canonical STL)"]
@@ -847,6 +897,7 @@ flowchart TD
         PROTO["prototype.py (ModelPrototype, Param, ViewSpec, ValidationReport)"]
     end
 
+    CLI --> AGENTS
     CLI --> BUILDER
     CLI --> RELEASE
     CLI --> WATCH
@@ -876,7 +927,8 @@ All library source lives under `src/build123d_forge/`:
 
 | Module | Key Public Symbols | Primary Responsibility |
 | :--- | :--- | :--- |
-| `__init__.py` | `__version__`, `__all__` (55 exports) | Curates the single canonical public API surface with zero duplicate legacy aliases. |
+| `__init__.py` | `__version__`, `__all__` (57 exports) | Curates the single canonical public API surface with zero duplicate legacy aliases. |
+| `agents.py` | `get_agents_directive`, `scaffold_agents` | Loads and scaffolds the canonical consumer `AGENTS.md` directive (`templates/AGENTS.template.md`). |
 | `prototype.py` | `ModelPrototype`, `Param`, `ViewSpec`, `ValidationReport` | Immutable Pydantic v2 base prototype, physical unit metadata (`unit`), B-Rep `verify()`, camera `views()`, `orient_for_print()` hook, and `.toml` template rendering. |
 | `schema.py` | `generate_json_schema`, `serialize_json_schema`, `export_json_schema` | Emits JSON Schema Draft 2020-12 definitions enforcing `additionalProperties: false` and optional `extends` / `model` IDE directives. |
 | `config.py` | `load_config_file`, `read_config_file`, `scaffold_config`, `ConfigError` | Recursive `tomllib` configuration loading, cycle-checked `extends` deep-merging, directive stripping, and `difflib` + synonym fuzzy typo diagnostics. |
@@ -887,7 +939,7 @@ All library source lives under `src/build123d_forge/`:
 | `builder.py` | `build_project`, `build_variant`, `check_project`, `list_project`, `clean_dist`, `discover_models`, `discover_variants` | Project/model/config auto-discovery, `ThreadPoolExecutor` parallel variant builds, incremental cache short-circuiting, and `bforge check` validation gates. |
 | `release.py` | `package_release`, `generate_release_notes` | Packages `dist/<variant>/` into per-variant `.zip` bundles, flattened `<variant>__<asset>` files, `RELEASE_NOTES.md`, and `SHA256SUMS.txt`. |
 | `watcher.py` | `watch_and_rebuild` | Zero-dependency stdlib `(st_mtime, st_size)` file poller over `.py` and `.toml` sources for live incremental rebuilds. |
-| `cli.py` | `cli`, `main` | `Click` command group powering `bforge` and `build123d-forge` (`build`, `check`, `new-config`, `schema`, `list`, `clean`, `watch`, `release-package`). |
+| `cli.py` | `cli`, `main` | `Click` command group powering `bforge` and `build123d-forge` (`build`, `check`, `new-config`, `init-agents`, `schema`, `list`, `clean`, `watch`, `release-package`). |
 
 ### Core Architectural Principles
 
@@ -896,7 +948,7 @@ All library source lives under `src/build123d_forge/`:
 2. **Canonical Public Exports (`__init__.py`)**:
    Every supported class, function, and exception is explicitly re-exported in `build123d_forge.__all__` without redundant aliases. Contract tests in `tests/test_imports.py` enforce symbol presence, Semantic Versioning, and editable `src/` path resolution.
 3. **Decoupling Fast-Path Introspection from OpenCASCADE & VTK**:
-   `cache.py`, `config.py`, `schema.py`, and `release.py` avoid top-level `build123d` geometry evaluation and `vtk` render window initialization (`vtk` is imported lazily inside `render_view()`, and `OCP` version lookup in `get_dependency_versions()` is guarded behind `@functools.lru_cache(maxsize=1)`). Commands like `bforge list`, `bforge schema`, `bforge new-config`, and warm incremental `bforge build` hits execute purely in Python metadata space without spinning up OpenCASCADE B-Rep kernels or OpenGL contexts.
+   `cache.py`, `config.py`, `schema.py`, `agents.py`, and `release.py` avoid top-level `build123d` geometry evaluation and `vtk` render window initialization (`vtk` is imported lazily inside `render_view()`, and `OCP` version lookup in `get_dependency_versions()` is guarded behind `@functools.lru_cache(maxsize=1)`). Commands like `bforge list`, `bforge schema`, `bforge new-config`, `bforge init-agents`, and warm incremental `bforge build` hits execute purely in Python metadata space without spinning up OpenCASCADE B-Rep kernels or OpenGL contexts.
 
 ---
 
@@ -1035,7 +1087,8 @@ All tests reside under `tests/` (configured via `testpaths = ["tests"]` in `pypr
    - `tests/test_exporters.py`: Verifies `SOURCE_DATE_EPOCH` STEP timestamp & assembly occurrence normalization, 80-byte canonical binary STL headers, and `export_print_stl()` single/multi-part dispatch.
    - `tests/test_render.py`: Tests headless VTK Phong rendering, `strip_png_chunks()` metadata removal and corrupted-header resynchronization, and `2x2` `preview_grid.png` compositing.
    - `tests/test_mcp_shim.py`: Verifies `ast.literal_eval()` safety of `generate_part_info_ast()`, `model_rebuild()` ForwardRef resolution, `make()` / `make_print_oriented()`, and MCP `result` hooks.
-   - `tests/test_builder.py`, `tests/test_release.py`, `tests/test_cli.py`: Exercise model/variant discovery, incremental and parallel `workers=2` builds, release archive & `SHA256SUMS.txt` packaging, and all 8 `bforge` Click subcommands via `CliRunner`.
+   - `tests/test_agents.py`: Validates consumer `AGENTS.md` template integrity, rule budget size limits, live Click CLI command/flag conformance across embedded examples, and `scaffold_agents()` / `bforge init-agents` behavior.
+   - `tests/test_builder.py`, `tests/test_release.py`, `tests/test_cli.py`: Exercise model/variant discovery, incremental and parallel `workers=2` builds, release archive & `SHA256SUMS.txt` packaging, and all 9 `bforge` Click subcommands via `CliRunner`.
    - `tests/test_workflows.py`: Parses `.github/workflows/ci.yml` and `.github/workflows/build-and-release.yml` offline (zero external YAML dependencies) and validates every `bforge` invocation and flag against the live Click command specification.
 
 2. **Four-Tier End-to-End Verification Matrix (`tests/test_e2e_tier*.py`)**:

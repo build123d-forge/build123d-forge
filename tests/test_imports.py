@@ -39,6 +39,8 @@ def test_all_exports_present() -> None:
         "discover_config_files",
         "scaffold_config",
         "create_config_template",
+        "get_agents_directive",
+        "scaffold_agents",
         "BuildManifest",
         "clear_cache",
         "compute_ast_closure_hash",
@@ -73,10 +75,13 @@ def test_all_exports_present() -> None:
 
 def test_submodules_importable() -> None:
     """Individual submodules are importable."""
+    import build123d_forge.agents as agents_mod
     import build123d_forge.mcp_shim
     import build123d_forge.prototype as prototype_mod
     import build123d_forge.schema as schema_mod
 
+    assert hasattr(agents_mod, "get_agents_directive")
+    assert hasattr(agents_mod, "scaffold_agents")
     assert hasattr(prototype_mod, "ModelPrototype")
     assert hasattr(schema_mod, "generate_json_schema")
     mcp_shim_module = sys.modules["build123d_forge.mcp_shim"]

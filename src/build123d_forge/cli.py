@@ -11,6 +11,10 @@ from typing import Any
 import click
 
 from build123d_forge import __version__
+from build123d_forge.agents import (
+    get_agents_directive,
+    scaffold_agents,
+)
 from build123d_forge.builder import (
     build_project,
     check_project,
@@ -153,6 +157,56 @@ def new_config_cmd(
         raise click.ClickException(str(exc))
     except Exception as exc:
         raise click.ClickException(f"Failed to generate configuration template: {exc}")
+
+
+# ==============================================================================
+# Subcommand: init-agents
+# ==============================================================================
+
+@cli.command("init-agents")
+@click.option(
+    "-o", "--out",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Output destination file or directory (default: AGENTS.md in project root).",
+)
+@click.option(
+    "-f", "--force",
+    is_flag=True,
+    default=False,
+    help="Overwrite destination file if it already exists.",
+)
+@click.option(
+    "--stdout",
+    is_flag=True,
+    default=False,
+    help="Print AGENTS.md directive directly to stdout.",
+)
+@click.pass_context
+def init_agents_cmd(
+    ctx: click.Context,
+    out: Path | None,
+    force: bool,
+    stdout: bool,
+) -> None:
+    """Scaffold a canonical AGENTS.md directive delegating CAD builds and previews to bforge."""
+    if stdout:
+        click.echo(get_agents_directive().rstrip("\n"))
+        return
+
+    root: Path = ctx.obj["project_root"]
+    if out:
+        target_path = out if out.is_absolute() else (root / out)
+    else:
+        target_path = root / "AGENTS.md"
+
+    try:
+        written = scaffold_agents(destination_path=target_path, force=force)
+        click.echo(f"Created agent directive at {written}")
+    except FileExistsError as exc:
+        raise click.ClickException(str(exc))
+    except Exception as exc:
+        raise click.ClickException(f"Failed to write agent directive: {exc}")
 
 
 # ==============================================================================

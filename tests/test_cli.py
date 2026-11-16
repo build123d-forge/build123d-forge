@@ -24,10 +24,20 @@ class TestBuild123dForgeCLI(unittest.TestCase):
         self.assertIn("version", result.output.lower())
 
     def test_help_option(self):
-        """bforge --help lists all 8 subcommands and exits 0."""
+        """bforge --help lists all 9 subcommands and exits 0."""
         result = self.runner.invoke(cli, ["--help"])
         self.assertEqual(result.exit_code, 0)
-        for cmd in ("build", "check", "new-config", "schema", "list", "clean", "watch", "release-package"):
+        for cmd in (
+            "build",
+            "check",
+            "new-config",
+            "init-agents",
+            "schema",
+            "list",
+            "clean",
+            "watch",
+            "release-package",
+        ):
             self.assertIn(cmd, result.output)
 
     def test_clean_existing_and_nonexistent(self):
@@ -73,6 +83,39 @@ class TestBuild123dForgeCLI(unittest.TestCase):
             # Overwrite with --force -> succeeds
             res_force = self.runner.invoke(cli, ["new-config", "cube_preset", "--force"])
             self.assertEqual(res_force.exit_code, 0)
+
+    def test_init_agents_scaffold_force_and_stdout(self):
+        """bforge init-agents writes AGENTS.md, guards overwrites without --force, and supports --stdout / -o."""
+        with self.runner.isolated_filesystem():
+            # 1. Print to stdout without touching disk
+            res_stdout = self.runner.invoke(cli, ["init-agents", "--stdout"])
+            self.assertEqual(res_stdout.exit_code, 0)
+            self.assertIn("# AGENTS.md", res_stdout.output)
+            self.assertIn("bforge build", res_stdout.output)
+            self.assertFalse(Path("AGENTS.md").exists())
+
+            # 2. Scaffold default AGENTS.md
+            res_create = self.runner.invoke(cli, ["init-agents"])
+            self.assertEqual(res_create.exit_code, 0)
+            target = Path("AGENTS.md")
+            self.assertTrue(target.is_file())
+            self.assertIn("ModelPrototype", target.read_text(encoding="utf-8"))
+
+            # 3. Refuse overwrite without --force
+            res_fail = self.runner.invoke(cli, ["init-agents"])
+            self.assertNotEqual(res_fail.exit_code, 0)
+            self.assertIn("already exists", res_fail.output.lower())
+
+            # 4. Overwrite with --force
+            target.write_text("stale", encoding="utf-8")
+            res_force = self.runner.invoke(cli, ["init-agents", "--force"])
+            self.assertEqual(res_force.exit_code, 0)
+            self.assertIn("bforge build", target.read_text(encoding="utf-8"))
+
+            # 5. Custom destination path (-o GEMINI.md)
+            res_custom = self.runner.invoke(cli, ["init-agents", "-o", "GEMINI.md"])
+            self.assertEqual(res_custom.exit_code, 0)
+            self.assertTrue(Path("GEMINI.md").is_file())
 
     def test_schema_stdout_and_file_export(self):
         """bforge schema exports to stdout and writes dist/schemas/<Model>.schema.json."""

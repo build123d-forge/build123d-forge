@@ -2,6 +2,10 @@
 
 __version__ = "0.1.0"
 
+from build123d_forge.agents import (
+    get_agents_directive,
+    scaffold_agents,
+)
 from build123d_forge.builder import (
     BuildResult,
     CheckResult,
@@ -108,6 +112,8 @@ __all__ = [
     "discover_config_files",
     "scaffold_config",
     "create_config_template",
+    "get_agents_directive",
+    "scaffold_agents",
     "ModelPrototype",
     "Param",
     "ValidationReport",
