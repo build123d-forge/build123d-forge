@@ -9,6 +9,7 @@ from build123d_forge.builder import (
     build_project,
     check_project,
     clean_dist,
+    discover_configs,
     discover_models,
     discover_variants,
     list_project,
@@ -137,6 +138,19 @@ class TestBuilderEngine(unittest.TestCase):
         self.assertTrue(clean_dist(dist))
         self.assertFalse(dist.exists())
         self.assertFalse(clean_dist(dist))
+
+    def test_discover_configs_ignores_venv_and_build_dirs(self):
+        """discover_configs ignores .toml files inside .venv, dist, and tests when scanning root."""
+        venv_pkg = self.root / ".venv" / "lib" / "site-packages" / "some_pkg"
+        venv_pkg.mkdir(parents=True)
+        (venv_pkg / "vendor.toml").write_text("foo = 1\n")
+
+        smoke_cfg = self.root / ".ci_smoke" / "configs"
+        smoke_cfg.mkdir(parents=True)
+        (smoke_cfg / "ci_cube.toml").write_text("size = 10.0\n")
+
+        found = discover_configs(project_root=self.root)
+        self.assertEqual(found, [smoke_cfg / "ci_cube.toml"])
 
 
 if __name__ == "__main__":

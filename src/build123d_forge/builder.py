@@ -194,7 +194,8 @@ def discover_models(
             candidate_files.append(d)
         elif d.is_dir():
             for p in d.rglob("*.py"):
-                if any(part in ignored_dir_names for part in p.parts):
+                rel_parts = p.relative_to(d).parts[:-1]
+                if any(part in ignored_dir_names for part in rel_parts):
                     continue
                 if p.name.startswith("test_") or p.name.endswith("_test.py"):
                     continue
@@ -246,6 +247,7 @@ def discover_configs(
 
     found: list[Path] = []
     ignored_names = {"pyproject.toml"}
+    ignored_dir_names = {".git", ".venv", "venv", "dist", "build", "__pycache__", ".pytest_cache", "tests"}
     for d in cfg_dirs:
         if not d.exists():
             continue
@@ -253,6 +255,9 @@ def discover_configs(
             found.append(d)
         elif d.is_dir():
             for p in d.rglob("*.toml"):
+                rel_parts = p.relative_to(d).parts[:-1]
+                if any(part in ignored_dir_names for part in rel_parts):
+                    continue
                 if p.name in ignored_names or p.name.startswith("."):
                     continue
                 found.append(p)

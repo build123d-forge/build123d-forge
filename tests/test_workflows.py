@@ -414,6 +414,33 @@ class TestCIWorkflow(unittest.TestCase):
                 found_install = True
         self.assertTrue(found_install, "Step installing editable package with 'render' extra not found")
 
+    def test_ci_creates_virtualenv_before_uv_pip_install(self):
+        steps = self.data["jobs"]["test"]["steps"]
+        venv_created = False
+        pip_installed = False
+        for step in steps:
+            run_cmd = step.get("run", "")
+            for line in run_cmd.splitlines():
+                stripped = line.strip()
+                if stripped.startswith("uv venv"):
+                    venv_created = True
+                if "uv pip install" in stripped and "--system" not in stripped:
+                    self.assertTrue(
+                        venv_created,
+                        "uv pip install executed before creating a virtual environment with 'uv venv'",
+                    )
+                    pip_installed = True
+        self.assertTrue(pip_installed, "Expected uv pip install step in CI workflow")
+
+        job_env = self.data["jobs"]["test"].get("env", {})
+        has_no_sync_env = str(job_env.get("UV_NO_SYNC", "")) in ("1", "true", "True")
+        if not has_no_sync_env:
+            for step in steps:
+                run_cmd = step.get("run", "")
+                for line in run_cmd.splitlines():
+                    if "uv run" in line:
+                        self.assertIn("--no-sync", line, "uv run without UV_NO_SYNC or --no-sync after uv pip install")
+
     def test_ci_pytest_command(self):
         steps = self.data["jobs"]["test"]["steps"]
         found_test = False
@@ -422,6 +449,16 @@ class TestCIWorkflow(unittest.TestCase):
             if "pytest" in run_cmd:
                 found_test = True
         self.assertTrue(found_test, "Pytest execution step not found")
+
+    def test_dev_dependencies_include_build123d_mcp_and_pytest(self):
+        import tomllib
+
+        pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+        opt_dev = pyproject.get("project", {}).get("optional-dependencies", {}).get("dev", [])
+        grp_dev = pyproject.get("dependency-groups", {}).get("dev", [])
+        self.assertTrue(any("pytest" in d for d in opt_dev), "pytest missing from optional-dependencies.dev")
+        self.assertTrue(any("build123d-mcp" in d for d in opt_dev), "build123d-mcp missing from optional-dependencies.dev")
+        self.assertTrue(any("build123d-mcp" in d for d in grp_dev), "build123d-mcp missing from dependency-groups.dev")
 
     def test_ci_cli_entrypoints_check(self):
         steps = self.data["jobs"]["test"]["steps"]
