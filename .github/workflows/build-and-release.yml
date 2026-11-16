@@ -93,14 +93,15 @@ jobs:
       - name: Install project dependencies
         run: |
           if [ -f uv.lock ]; then
-            uv sync --frozen
+            uv sync --frozen --python "${{ inputs.python-version || '3.12' }}"
           else
-            uv sync
+            uv sync --python "${{ inputs.python-version || '3.12' }}"
           fi
 
       - name: Build & validate all model configurations
         env:
           VTK_DEFAULT_OPENGL_WINDOW: vtkOSOpenGLRenderWindow
+          UV_NO_SYNC: "1"
         run: |
           export SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)
           BUILD_FLAGS=()
@@ -121,6 +122,8 @@ jobs:
 
       - name: Package release assets on v* tag
         if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          UV_NO_SYNC: "1"
         run: |
           uv run bforge release-package \
             --tag "${GITHUB_REF_NAME}" \

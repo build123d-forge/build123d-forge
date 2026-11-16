@@ -26,6 +26,7 @@ jobs:
     env:
       VTK_DEFAULT_OPENGL_WINDOW: vtkOSOpenGLRenderWindow
       PYTHONUNBUFFERED: "1"
+      UV_NO_SYNC: "1"
 
     steps:
       - name: Checkout repository
@@ -43,10 +44,12 @@ jobs:
           cache-dependency-glob: "pyproject.toml"
 
       - name: Set up Python ${{ matrix.python-version }}
-        run: uv python install ${{ matrix.python-version }}
+        run: |
+          uv python install ${{ matrix.python-version }}
+          uv venv --python ${{ matrix.python-version }} .venv
 
       - name: Install build123d-forge and dependencies
-        run: uv pip install -e ".[render,dev]"
+        run: uv pip install -e ".[render,dev]" --python .venv/bin/python
 
       - name: Verify CLI entry points and help commands
         run: |
@@ -72,8 +75,8 @@ jobs:
           cat << 'EOF' > .ci_smoke/configs/ci_cube.toml
           size = 10.0
           EOF
-          uv run bforge check
-          uv run bforge build -o .ci_smoke/dist
+          uv run bforge check --models-dir .ci_smoke/models --configs-dir .ci_smoke/configs
+          uv run bforge build --models-dir .ci_smoke/models --configs-dir .ci_smoke/configs -o .ci_smoke/dist
           test -f .ci_smoke/dist/ci_cube/ci_cube.step
           test -f .ci_smoke/dist/ci_cube/ci_cube.stl
           test -f .ci_smoke/dist/ci_cube/manifest.json
