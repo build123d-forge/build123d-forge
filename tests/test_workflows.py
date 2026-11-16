@@ -450,6 +450,16 @@ class TestCIWorkflow(unittest.TestCase):
                 found_test = True
         self.assertTrue(found_test, "Pytest execution step not found")
 
+    def test_dev_dependencies_include_build123d_mcp_and_pytest(self):
+        import tomllib
+
+        pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+        opt_dev = pyproject.get("project", {}).get("optional-dependencies", {}).get("dev", [])
+        grp_dev = pyproject.get("dependency-groups", {}).get("dev", [])
+        self.assertTrue(any("pytest" in d for d in opt_dev), "pytest missing from optional-dependencies.dev")
+        self.assertTrue(any("build123d-mcp" in d for d in opt_dev), "build123d-mcp missing from optional-dependencies.dev")
+        self.assertTrue(any("build123d-mcp" in d for d in grp_dev), "build123d-mcp missing from dependency-groups.dev")
+
     def test_ci_cli_entrypoints_check(self):
         steps = self.data["jobs"]["test"]["steps"]
         found_cli_check = False
